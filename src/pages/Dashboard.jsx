@@ -1,7 +1,10 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { supabaseRest } from '../lib/supabase'
+import { supabase, supabaseRest, supabasePatch } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
+import { descriptionPreview } from '../lib/description'
+import TaskDetailDrawer from '../components/TaskDetailDrawer'
+import TaskCheck from '../components/TaskCheck'
 
 const PRIORITY_DOT = { high: 'bg-red-500', medium: 'bg-amber-400', low: 'bg-muted' }
 
@@ -16,37 +19,74 @@ function todayStr() { return new Date().toISOString().split('T')[0] }
 export default function Dashboard() {
   const { profile }         = useAuth()
   const [tasks, setTasks]   = useState([])
+  const [projects, setProjects] = useState([])
+  const [team, setTeam]     = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError]   = useState(null)
+  const [selectedId, setSelectedId] = useState(null)
 
   useEffect(() => {
-    loadTasks()
-    window.addEventListener('voiceTaskCreated', loadTasks)
-    return () => window.removeEventListener('voiceTaskCreated', loadTasks)
+    loadAll()
+    window.addEventListener('voiceTaskCreated', loadAll)
+    const ch = supabase.channel('dashboard-rt')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks' }, loadAll)
+      .subscribe()
+    return () => {
+      window.removeEventListener('voiceTaskCreated', loadAll)
+      supabase.removeChannel(ch)
+    }
   }, [])
 
-  async function loadTasks() {
+  async function loadAll() {
     setLoading(true)
     setError(null)
     try {
-      const result = await supabaseRest('tasks', {
-        select: '*,projects(name,color)',
-        filters: ['status=neq.cancelled', 'order=created_at.desc'],
-      })
-      if (result.error) throw new Error(result.error.message ?? JSON.stringify(result.error))
-      setTasks(result.data ?? [])
+      const [tasksRes, projectsRes, profilesRes] = await Promise.all([
+        supabaseRest('tasks', {
+          select: '*,projects(name,color)',
+          filters: ['status=neq.cancelled', 'order=created_at.desc'],
+        }),
+        supabaseRest('projects', { select: 'id,name', filters: ['archived=eq.false'] }),
+        supabaseRest('profiles', { select: 'id,full_name,email' }),
+      ])
+      if (tasksRes.error) throw new Error(tasksRes.error.message ?? JSON.stringify(tasksRes.error))
+      if (projectsRes.error) throw new Error(projectsRes.error.message ?? JSON.stringify(projectsRes.error))
+      if (profilesRes.error) throw new Error(profilesRes.error.message ?? JSON.stringify(profilesRes.error))
+      setTasks(tasksRes.data ?? [])
+      setProjects(projectsRes.data ?? [])
+      setTeam(profilesRes.data ?? [])
     } catch (err) {
-      console.error('[Dashboard] loadTasks:', err)
+      console.error('[Dashboard] loadAll:', err)
       setError(err.message ?? 'Не удалось загрузить задачи')
     } finally {
       setLoading(false)
     }
   }
 
+  async function quickToggleDone(task) {
+    const nextStatus = task.status === 'done' ? 'todo' : 'done'
+    setTasks(prev => prev.map(t => t.id === task.id ? { ...t, status: nextStatus } : t))
+    const { error } = await supabasePatch('tasks', task.id, { status: nextStatus })
+    if (error) {
+      console.error('[Dashboard] quickToggleDone:', error)
+      setTasks(prev => prev.map(t => t.id === task.id ? { ...t, status: task.status } : t))
+    }
+  }
+
+  function applyTaskUpdate(updated) {
+    setTasks(prev => prev.map(t => t.id === updated.id ? { ...t, ...updated, projects: t.projects } : t))
+  }
+
+  function removeTaskFromList(id) {
+    setTasks(prev => prev.filter(t => t.id !== id))
+    setSelectedId(null)
+  }
+
   const today       = todayStr()
   const displayName = profile?.full_name || ''
   const todayTasks  = tasks.filter(t => t.due_date === today && t.status !== 'done')
   const recentTasks = tasks.slice(0, 7)
+  const selectedTask = tasks.find(t => t.id === selectedId) ?? null
 
   const stats = [
     { label: 'Всего задач', value: tasks.length,                                                                       icon: 'M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 002.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 00-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.664m-5.8 0A2.251 2.251 0 0113.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25z' },
@@ -64,7 +104,7 @@ export default function Dashboard() {
   if (error) return (
     <div className="flex flex-col items-center justify-center h-48 gap-3 text-center">
       <p className="text-sm text-muted">{error}</p>
-      <button className="btn-secondary text-sm" onClick={loadTasks}>Повторить</button>
+      <button className="btn-secondary text-sm" onClick={loadAll}>Повторить</button>
     </div>
   )
 
@@ -101,7 +141,15 @@ export default function Dashboard() {
             <span className="text-muted font-normal">({todayTasks.length})</span>
           </h3>
           <div className="bg-card rounded-xl border border-border shadow-card divide-y divide-border">
-            {todayTasks.map(t => <TaskRow key={t.id} task={t} today={today} />)}
+            {todayTasks.map(t => (
+              <TaskRow
+                key={t.id}
+                task={t}
+                today={today}
+                onOpen={() => setSelectedId(t.id)}
+                onToggle={() => quickToggleDone(t)}
+              />
+            ))}
           </div>
         </section>
       )}
@@ -124,35 +172,55 @@ export default function Dashboard() {
               <p className="text-xs text-muted mt-1">Создайте первую задачу голосом!</p>
             </div>
           ) : (
-            recentTasks.map(t => <TaskRow key={t.id} task={t} today={today} />)
+            recentTasks.map(t => (
+              <TaskRow
+                key={t.id}
+                task={t}
+                today={today}
+                onOpen={() => setSelectedId(t.id)}
+                onToggle={() => quickToggleDone(t)}
+              />
+            ))
           )}
         </div>
       </section>
+
+      {selectedTask && (
+        <TaskDetailDrawer
+          task={selectedTask}
+          projects={projects}
+          team={team}
+          onClose={() => setSelectedId(null)}
+          onUpdated={applyTaskUpdate}
+          onDeleted={removeTaskFromList}
+        />
+      )}
     </div>
   )
 }
 
-function TaskRow({ task, today }) {
+function TaskRow({ task, today, onOpen, onToggle }) {
   const isOverdue = task.due_date && task.due_date < today && task.status !== 'done'
   const isDone    = task.status === 'done'
+  const previewText = descriptionPreview(task.description)
 
   return (
-    <div className="flex items-center gap-3 px-4 py-3 hover:bg-hover transition-colors group">
-      <div className="shrink-0">
-        {isDone ? (
-          <svg className="w-4 h-4 text-emerald-500" fill="currentColor" viewBox="0 0 20 20">
-            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.857-9.809a.75.75 0 00-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 10-1.06 1.061l2.5 2.5a.75.75 0 001.137-.089l4-5.5z" clipRule="evenodd" />
-          </svg>
-        ) : (
-          <div className={`task-check ${isOverdue ? 'is-overdue' : ''}`} />
-        )}
-      </div>
+    <div
+      onClick={onOpen}
+      className={`flex items-center gap-3 px-4 py-3 hover:bg-hover transition-colors group cursor-pointer ${isDone ? 'opacity-50' : ''}`}
+    >
+      <TaskCheck done={isDone} isOverdue={isOverdue} onToggle={onToggle} />
       {task.priority && (
         <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${PRIORITY_DOT[task.priority] ?? 'bg-muted'}`} />
       )}
-      <p className={`flex-1 text-sm min-w-0 truncate ${isDone ? 'text-muted line-through' : 'text-text font-medium'}`}>
-        {task.title}
-      </p>
+      <div className="flex-1 min-w-0">
+        <p className={`text-sm truncate ${isDone ? 'text-muted line-through' : 'text-text font-medium'}`}>
+          {task.title}
+        </p>
+        {previewText && (
+          <p className="text-xs text-muted truncate mt-0.5">{previewText}</p>
+        )}
+      </div>
       <div className="flex items-center gap-3 shrink-0 ml-2">
         {task.projects && (
           <span className="hidden sm:flex items-center gap-1 text-xs text-muted bg-hover px-2 py-0.5 rounded-full">

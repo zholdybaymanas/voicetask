@@ -1,5 +1,8 @@
 import { useState, useEffect } from 'react'
-import { supabase, supabaseRest, getCurrentUser } from '../lib/supabase'
+import { supabase, supabaseRest, supabasePatch, getCurrentUser } from '../lib/supabase'
+import { descriptionPreview, parseDescription } from '../lib/description'
+import TaskDetailDrawer from '../components/TaskDetailDrawer'
+import TaskCheck from '../components/TaskCheck'
 
 const STATUS_OPTIONS = [
   { value: '',            label: 'Все статусы' },
@@ -27,6 +30,7 @@ export default function TasksPage() {
   const [filterStatus,  setFilterStatus]    = useState('')
   const [filterAssignee, setFilterAssignee] = useState('')
   const [addOpen, setAddOpen]           = useState(false)
+  const [selectedId, setSelectedId]     = useState(null)
 
   useEffect(() => {
     loadAll()
@@ -60,13 +64,32 @@ export default function TasksPage() {
     }
   }
 
+  async function quickToggleDone(task) {
+    const nextStatus = task.status === 'done' ? 'todo' : 'done'
+    setTasks(prev => prev.map(t => t.id === task.id ? { ...t, status: nextStatus } : t))
+    const { error } = await supabasePatch('tasks', task.id, { status: nextStatus })
+    if (error) {
+      console.error('[TasksPage] quickToggleDone:', error)
+      setTasks(prev => prev.map(t => t.id === task.id ? { ...t, status: task.status } : t))
+    }
+  }
+
   async function updateStatus(id, status) {
-    const result = await supabaseRest('tasks', { method: 'PATCH', filters: [`id=eq.${id}`], body: { status } })
-    if (result.error) {
-      console.error('[TasksPage] updateStatus error:', result.error)
+    const { error } = await supabasePatch('tasks', id, { status })
+    if (error) {
+      console.error('[TasksPage] updateStatus:', error)
       return
     }
     setTasks(prev => prev.map(t => t.id === id ? { ...t, status } : t))
+  }
+
+  function applyTaskUpdate(updated) {
+    // Merge the patched task into the list, keeping the joined `projects` field
+    setTasks(prev => prev.map(t => t.id === updated.id ? { ...t, ...updated, projects: t.projects } : t))
+  }
+
+  function removeTaskFromList(id) {
+    setTasks(prev => prev.filter(t => t.id !== id))
   }
 
   const today = new Date().toISOString().split('T')[0]
@@ -79,6 +102,7 @@ export default function TasksPage() {
   })
 
   const assigneeById = Object.fromEntries(team.map(u => [u.id, u]))
+  const selectedTask = tasks.find(t => t.id === selectedId) ?? null
 
   return (
     <div className="space-y-4">
@@ -110,7 +134,8 @@ export default function TasksPage() {
       </div>
 
       <div className="bg-card rounded-xl border border-border shadow-card overflow-hidden">
-        <div className="hidden md:grid grid-cols-[1fr_160px_140px_110px_130px] gap-4 px-4 py-2.5 border-b border-border bg-hover">
+        <div className="hidden md:grid grid-cols-[24px_1fr_160px_140px_110px_130px] gap-4 px-4 py-2.5 border-b border-border bg-hover">
+          <span />
           {['Задача', 'Проект', 'Исполнитель', 'Дедлайн', 'Статус'].map(h => (
             <span key={h} className="text-[11px] font-semibold text-muted uppercase tracking-wide">{h}</span>
           ))}
@@ -137,8 +162,13 @@ export default function TasksPage() {
               const assignee  = task.profiles ?? assigneeById[task.assignee_id]
               const isDone    = task.status === 'done'
               return (
-                <div key={task.id} className="px-4 py-3 hover:bg-hover transition-colors">
-                  <div className="hidden md:grid grid-cols-[1fr_160px_140px_110px_130px] gap-4 items-center">
+                <div
+                  key={task.id}
+                  className={`px-4 py-3 hover:bg-hover transition-colors cursor-pointer ${isDone ? 'opacity-50' : ''}`}
+                  onClick={() => setSelectedId(task.id)}
+                >
+                  <div className="hidden md:grid grid-cols-[24px_1fr_160px_140px_110px_130px] gap-4 items-center">
+                    <TaskCheck done={isDone} isOverdue={isOverdue} onToggle={() => quickToggleDone(task)} />
                     <TaskTitle task={task} isDone={isDone} />
                     <ProjectBadge project={task.projects} />
                     <AssigneeBadge user={assignee} />
@@ -147,11 +177,16 @@ export default function TasksPage() {
                   </div>
 
                   <div className="md:hidden space-y-2">
-                    <div className="flex items-start justify-between gap-2">
-                      <TaskTitle task={task} isDone={isDone} />
+                    <div className="flex items-start gap-3">
+                      <div className="pt-0.5">
+                        <TaskCheck done={isDone} isOverdue={isOverdue} onToggle={() => quickToggleDone(task)} />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <TaskTitle task={task} isDone={isDone} />
+                      </div>
                       <StatusSelect value={task.status} onChange={s => updateStatus(task.id, s)} compact />
                     </div>
-                    <div className="flex items-center gap-2 flex-wrap text-xs">
+                    <div className="flex items-center gap-2 flex-wrap text-xs pl-7">
                       {task.projects && <ProjectBadge project={task.projects} />}
                       {assignee && <AssigneeBadge user={assignee} />}
                       {task.due_date && <DueDate date={task.due_date} isOverdue={isOverdue} />}
@@ -172,11 +207,23 @@ export default function TasksPage() {
           onCreated={loadAll}
         />
       )}
+
+      {selectedTask && (
+        <TaskDetailDrawer
+          task={selectedTask}
+          projects={projects}
+          team={team}
+          onClose={() => setSelectedId(null)}
+          onUpdated={applyTaskUpdate}
+          onDeleted={removeTaskFromList}
+        />
+      )}
     </div>
   )
 }
 
 function TaskTitle({ task, isDone }) {
+  const text = descriptionPreview(task.description)
   return (
     <div className="flex items-center gap-2.5 min-w-0">
       <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${PRIORITY_DOT[task.priority] ?? 'bg-muted'}`} title={PRIORITY_LABEL[task.priority]} />
@@ -184,8 +231,8 @@ function TaskTitle({ task, isDone }) {
         <p className={`text-sm truncate ${isDone ? 'text-muted line-through' : 'text-text font-medium'}`}>
           {task.title}
         </p>
-        {task.description && (
-          <p className="text-xs text-muted truncate mt-0.5">{task.description}</p>
+        {text && (
+          <p className="text-xs text-muted truncate mt-0.5">{text}</p>
         )}
       </div>
     </div>
@@ -228,6 +275,7 @@ function StatusSelect({ value, onChange, compact = false }) {
     <select
       value={value ?? 'todo'}
       onChange={e => onChange(e.target.value)}
+      onClick={e => e.stopPropagation()}
       className={`text-xs rounded-full px-2.5 py-1 border-0 outline-none cursor-pointer appearance-none text-center ${compact ? 'shrink-0' : 'w-full'} ${STATUS_BADGE[value ?? 'todo']}`}
     >
       <option value="todo">К выполнению</option>

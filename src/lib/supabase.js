@@ -31,11 +31,48 @@ export function getCurrentUser() {
   return getStoredSession()?.user ?? null
 }
 
+function getAccessToken() {
+  return getStoredSession()?.access_token || supabaseAnonKey
+}
+
+export async function supabasePatch(table, id, body) {
+  const url = `${supabaseUrl}/rest/v1/${table}?id=eq.${id}`
+  const res = await fetch(url, {
+    method: 'PATCH',
+    headers: {
+      'apikey':        supabaseAnonKey,
+      'Authorization': `Bearer ${getAccessToken()}`,
+      'Content-Type':  'application/json',
+      'Prefer':        'return=representation',
+    },
+    body: JSON.stringify(body),
+  })
+  const text = await res.text()
+  let data = null
+  try { data = text ? JSON.parse(text) : null } catch {}
+  return { data, error: res.ok ? null : (data ?? { message: `Ошибка ${res.status}` }) }
+}
+
+export async function supabaseDelete(table, id) {
+  const url = `${supabaseUrl}/rest/v1/${table}?id=eq.${id}`
+  const res = await fetch(url, {
+    method: 'DELETE',
+    headers: {
+      'apikey':        supabaseAnonKey,
+      'Authorization': `Bearer ${getAccessToken()}`,
+      'Content-Type':  'application/json',
+    },
+  })
+  if (res.ok) return { error: null }
+  let err = null
+  try { err = await res.json() } catch {}
+  return { error: err ?? { message: `Ошибка ${res.status}` } }
+}
+
 export async function supabaseRest(table, options = {}) {
   const { select = '*', filters = [], method = 'GET', body } = options
 
-  const session = getStoredSession()
-  const token = session?.access_token || supabaseAnonKey
+  const token = getAccessToken()
 
   let url = `${supabaseUrl}/rest/v1/${table}`
   const params = []
