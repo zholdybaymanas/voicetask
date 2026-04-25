@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { supabaseRest, getCurrentUser } from '../lib/supabase'
+import { supabaseRest, supabaseDelete, getCurrentUser } from '../lib/supabase'
 
 const COLORS = ['#2D5BE3', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899', '#06B6D4', '#64748B']
 
@@ -13,6 +13,8 @@ export default function ProjectsPage() {
   const [form, setForm]             = useState({ name: '', description: '', color: COLORS[0] })
   const [saving, setSaving]         = useState(false)
   const [formError, setFormError]   = useState('')
+  const [confirmDeleteId, setConfirmDeleteId] = useState(null)
+  const [deleting, setDeleting]     = useState(false)
 
   useEffect(() => { loadProjects() }, [])
 
@@ -79,11 +81,20 @@ export default function ProjectsPage() {
     loadProjects()
   }
 
-  async function archiveProject(id) {
-    const result = await supabaseRest('projects', { method: 'PATCH', filters: [`id=eq.${id}`], body: { archived: true } })
-    if (result.error) console.error('[ProjectsPage] archive error:', result.error)
-    loadProjects()
+  async function deleteProject(id) {
+    setDeleting(true)
+    const { error } = await supabaseDelete('projects', id)
+    setDeleting(false)
+    setConfirmDeleteId(null)
+    if (error) {
+      console.error('[ProjectsPage] delete error:', error)
+      setError(error.message ?? 'Не удалось удалить проект')
+      return
+    }
+    setProjects(prev => prev.filter(p => p.id !== id))
   }
+
+  const projectToDelete = projects.find(p => p.id === confirmDeleteId) ?? null
 
   if (loading) return (
     <div className="flex items-center justify-center h-48">
@@ -144,13 +155,13 @@ export default function ProjectsPage() {
                       )}
                     </div>
                     <button
-                      onClick={() => archiveProject(p.id)}
-                      title="Архивировать"
-                      className="md:opacity-0 md:group-hover:opacity-100 transition-opacity text-muted hover:text-text p-1 rounded shrink-0"
+                      onClick={() => setConfirmDeleteId(p.id)}
+                      title="Удалить проект"
+                      className="md:opacity-0 md:group-hover:opacity-100 transition-opacity text-muted hover:text-red-500 p-1 rounded shrink-0"
                     >
                       <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                         <path strokeLinecap="round" strokeLinejoin="round"
-                          d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z" />
+                          d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
                       </svg>
                     </button>
                   </div>
@@ -172,6 +183,36 @@ export default function ProjectsPage() {
               </div>
             )
           })}
+        </div>
+      )}
+
+      {projectToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => !deleting && setConfirmDeleteId(null)} />
+          <div className="relative bg-card border border-border rounded-2xl shadow-2xl w-full max-w-sm p-5 sm:p-6">
+            <h2 className="text-base font-semibold text-text mb-2">Удалить проект?</h2>
+            <p className="text-sm text-muted mb-5">
+              Проект <span className="text-text font-medium">«{projectToDelete.name}»</span> будет удалён без возможности восстановления.
+              Связанные задачи останутся, но потеряют ссылку на проект.
+            </p>
+            <div className="flex justify-end gap-2">
+              <button
+                className="btn-secondary"
+                onClick={() => setConfirmDeleteId(null)}
+                disabled={deleting}
+              >
+                Отмена
+              </button>
+              <button
+                onClick={() => deleteProject(projectToDelete.id)}
+                disabled={deleting}
+                className="text-sm font-medium px-4 py-2 rounded-lg bg-red-500 text-white hover:bg-red-600 active:scale-95 transition-all disabled:opacity-50 flex items-center gap-2"
+              >
+                {deleting && <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />}
+                Удалить
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
