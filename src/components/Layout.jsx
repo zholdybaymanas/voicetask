@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { supabase, supabaseRest } from '../lib/supabase'
+import { useTheme } from '../contexts/ThemeContext'
 import VoiceInput from './VoiceInput'
 
 const NAV = [
@@ -32,6 +33,35 @@ const PAGE_TITLES = {
   '/team': 'Команда', '/notifications': 'Уведомления',
 }
 
+function ThemeSwitcher() {
+  const { theme, setTheme, themes } = useTheme()
+  return (
+    <div className="flex items-center gap-1.5">
+      {themes.map(t => {
+        const active = t.id === theme
+        return (
+          <button
+            key={t.id}
+            onClick={() => setTheme(t.id)}
+            title={t.name}
+            aria-label={`Тема ${t.name}`}
+            className={`group relative w-5 h-5 rounded-full transition-transform hover:scale-110 ${active ? 'scale-110' : ''}`}
+            style={{
+              background: t.swatch,
+              border: `1.5px solid ${active ? t.accent : t.borderColor}`,
+              boxShadow: active ? `0 0 0 2px rgb(var(--bg-rgb)), 0 0 0 3.5px ${t.accent}` : 'none',
+            }}
+          >
+            <span className="absolute top-full mt-2 left-1/2 -translate-x-1/2 px-2 py-1 rounded-md bg-card border border-border text-text text-[10px] font-medium whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none shadow-card z-50">
+              {t.name}
+            </span>
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
 export default function Layout() {
   const { user, profile, signOut } = useAuth()
   const [sidebarOpen, setSidebarOpen] = useState(() =>
@@ -40,7 +70,6 @@ export default function Layout() {
   const [unread, setUnread] = useState(0)
   const location = useLocation()
 
-  // Auto-close sidebar on mobile when navigating
   useEffect(() => {
     if (window.innerWidth < 768) setSidebarOpen(false)
   }, [location.pathname])
@@ -67,37 +96,34 @@ export default function Layout() {
   const pageTitle = PAGE_TITLES[location.pathname] ?? 'VoiceTask'
 
   return (
-    <div className="min-h-screen bg-slate-50 flex">
-      {/* Mobile backdrop */}
+    <div className="min-h-screen bg-bg flex">
       {sidebarOpen && (
         <div
-          className="fixed inset-0 z-30 bg-black/40 backdrop-blur-sm md:hidden"
+          className="fixed inset-0 z-30 bg-black/50 backdrop-blur-sm md:hidden"
           onClick={() => setSidebarOpen(false)}
         />
       )}
 
-      {/* ── Sidebar ─────────────────────────────────────────────────────── */}
       <aside
         className={`
           fixed md:static inset-y-0 left-0 z-40
-          w-60 bg-white border-r border-slate-100
+          w-60 bg-sidebar border-r border-border
           flex flex-col shrink-0
           transition-transform duration-200 ease-out
           ${sidebarOpen ? 'translate-x-0' : '-translate-x-full md:-ml-60'}
         `}
       >
-        {/* Brand */}
-        <div className="flex items-center gap-2.5 h-14 px-5 border-b border-slate-100">
+        <div className="flex items-center gap-2.5 h-14 px-5 border-b border-border">
           <div className="w-7 h-7 bg-primary rounded-lg flex items-center justify-center shrink-0">
             <svg className="w-3.5 h-3.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
               <path strokeLinecap="round" strokeLinejoin="round"
                 d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 01-3-3V4.5a3 3 0 116 0v8.25a3 3 0 01-3 3z" />
             </svg>
           </div>
-          <span className="font-semibold text-slate-900 text-sm tracking-tight">VoiceTask</span>
+          <span className="font-semibold text-text text-sm tracking-tight">VoiceTask</span>
           <button
             onClick={() => setSidebarOpen(false)}
-            className="ml-auto md:hidden text-slate-400 hover:text-slate-700 p-1 rounded"
+            className="ml-auto md:hidden text-muted hover:text-text p-1 rounded"
             aria-label="Закрыть меню"
           >
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -106,7 +132,6 @@ export default function Layout() {
           </button>
         </div>
 
-        {/* Nav */}
         <nav className="flex-1 px-3 py-3 space-y-0.5 overflow-y-auto">
           {NAV.map(({ path, end, label, icon }) => (
             <NavLink
@@ -116,8 +141,8 @@ export default function Layout() {
               className={({ isActive }) =>
                 `flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors duration-100 ${
                   isActive
-                    ? 'bg-[#EEF2FF] text-primary'
-                    : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                    ? 'nav-active'
+                    : 'text-muted hover:bg-hover hover:text-text'
                 }`
               }
             >
@@ -134,22 +159,21 @@ export default function Layout() {
           ))}
         </nav>
 
-        {/* User */}
-        <div className="px-3 pb-4 pt-2 border-t border-slate-100">
-          <div className="flex items-center gap-2.5 px-2 py-2 rounded-lg hover:bg-slate-50 transition-colors group">
+        <div className="px-3 pb-4 pt-2 border-t border-border">
+          <div className="flex items-center gap-2.5 px-2 py-2 rounded-lg hover:bg-hover transition-colors group">
             <div className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center text-primary text-xs font-bold shrink-0">
               {initials}
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-xs font-medium text-slate-800 truncate">{displayName}</p>
+              <p className="text-xs font-medium text-text truncate">{displayName}</p>
               {profile?.full_name && (
-                <p className="text-[11px] text-slate-400 truncate">{user?.email}</p>
+                <p className="text-[11px] text-muted truncate">{user?.email}</p>
               )}
             </div>
             <button
               onClick={signOut}
               title="Выйти"
-              className="md:opacity-0 md:group-hover:opacity-100 transition-opacity text-slate-400 hover:text-slate-600 p-1 rounded"
+              className="md:opacity-0 md:group-hover:opacity-100 transition-opacity text-muted hover:text-text p-1 rounded"
             >
               <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round"
@@ -160,29 +184,27 @@ export default function Layout() {
         </div>
       </aside>
 
-      {/* ── Main ────────────────────────────────────────────────────────── */}
       <main className="flex-1 min-w-0 flex flex-col">
-        {/* Top bar */}
-        <header className="h-14 bg-white border-b border-slate-100 px-4 sm:px-6 flex items-center gap-3 sm:gap-4 shrink-0">
+        <header className="h-14 bg-card border-b border-border px-4 sm:px-6 flex items-center gap-3 sm:gap-4 shrink-0">
           <button
             onClick={() => setSidebarOpen(v => !v)}
-            className="text-slate-400 hover:text-slate-700 transition-colors p-1 rounded-md hover:bg-slate-100"
+            className="text-muted hover:text-text transition-colors p-1 rounded-md hover:bg-hover"
             aria-label="Меню"
           >
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
             </svg>
           </button>
-          <h1 className="text-[15px] font-semibold text-slate-900 truncate">{pageTitle}</h1>
+          <h1 className="text-[15px] font-semibold text-text truncate">{pageTitle}</h1>
+          <div className="flex-1" />
+          <ThemeSwitcher />
         </header>
 
-        {/* Page content */}
-        <div className="flex-1 overflow-y-auto p-4 sm:p-6 pb-24 sm:pb-6">
+        <div className="flex-1 overflow-y-auto p-4 sm:p-6 pb-24 sm:pb-6 bg-bg">
           <Outlet />
         </div>
       </main>
 
-      {/* FAB — rendered outside overflow containers so position:fixed works reliably */}
       <VoiceInput />
     </div>
   )

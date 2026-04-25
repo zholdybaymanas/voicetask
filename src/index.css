@@ -2,9 +2,94 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ─────────────────────────────────────────────────────────────────────
+   THEME VARIABLES
+   Stored as `R G B` triplets so Tailwind's `<alpha-value>` works
+   (e.g. bg-primary/10 → rgb(var(--accent-rgb) / 0.1)).
+   ───────────────────────────────────────────────────────────────────── */
+
+/* LIGHT (Notion) — default */
+:root,
+[data-theme="light"] {
+  --bg-rgb:          255 255 255;
+  --sidebar-rgb:     247 247 245;
+  --card-rgb:        255 255 255;
+  --text-rgb:         26  26  26;
+  --muted-rgb:       155 154 151;
+  --border-rgb:      233 233 231;
+  --hover-rgb:       247 247 245;
+  --accent-rgb:       45  91 227;
+  --accent-dark-rgb:  30  63 176;
+
+  --shadow:       0 1px 3px 0 rgb(0 0 0 / 0.08), 0 1px 2px -1px rgb(0 0 0 / 0.06);
+  --shadow-hover: 0 4px 12px 0 rgb(45 91 227 / 0.12);
+  --shadow-glow:  none;
+
+  color-scheme: light;
+}
+
+/* DARK (Linear / Vercel) */
+[data-theme="dark"] {
+  --bg-rgb:           10  10  10;
+  --sidebar-rgb:      17  17  17;
+  --card-rgb:         26  26  26;
+  --text-rgb:        255 255 255;
+  --muted-rgb:       102 102 102;
+  --border-rgb:       34  34  34;
+  --hover-rgb:        34  34  34;
+  --accent-rgb:       45  91 227;
+  --accent-dark-rgb:  30  63 176;
+
+  --shadow:       0 1px 3px 0 rgb(0 0 0 / 0.5), 0 1px 2px -1px rgb(0 0 0 / 0.4);
+  --shadow-hover: 0 4px 12px 0 rgb(0 0 0 / 0.6);
+  --shadow-glow:  none;
+
+  color-scheme: dark;
+}
+
+/* MIDNIGHT (Cyberpunk) */
+[data-theme="midnight"] {
+  --bg-rgb:            6   6  16;
+  --sidebar-rgb:      13  13  31;
+  --card-rgb:         15  15  42;
+  --text-rgb:        226 232 255;
+  --muted-rgb:       110 110 160;
+  --border-rgb:       26  26  62;
+  --hover-rgb:        26  26  62;
+  --accent-rgb:      124  58 237;
+  --accent-dark-rgb:  90  30 200;
+
+  --shadow:       0 1px 3px 0 rgb(0 0 0 / 0.6), 0 0 0 1px rgb(124 58 237 / 0.1);
+  --shadow-hover: 0 4px 16px 0 rgb(124 58 237 / 0.35);
+  --shadow-glow:  0 0 16px rgb(124 58 237 / 0.55);
+
+  color-scheme: dark;
+}
+
+/* FOREST (Natural) */
+[data-theme="forest"] {
+  --bg-rgb:           13  17  23;
+  --sidebar-rgb:      22  27  34;
+  --card-rgb:         28  33  40;
+  --text-rgb:        205 217 229;
+  --muted-rgb:       124 138 153;
+  --border-rgb:       48  54  61;
+  --hover-rgb:        48  54  61;
+  --accent-rgb:       16 185 129;
+  --accent-dark-rgb:   5 150 105;
+
+  --shadow:       0 1px 3px 0 rgb(0 0 0 / 0.4);
+  --shadow-hover: 0 4px 12px 0 rgb(16 185 129 / 0.18);
+  --shadow-glow:  none;
+
+  color-scheme: dark;
+}
+
 @layer base {
   * {
     box-sizing: border-box;
+    transition: background-color 0.2s ease, border-color 0.2s ease,
+                color 0.15s ease, box-shadow 0.2s ease;
   }
 
   html {
@@ -13,7 +98,7 @@
   }
 
   body {
-    @apply bg-slate-50 text-slate-900 font-sans;
+    @apply bg-bg text-text font-sans;
     min-height: 100vh;
   }
 }
@@ -26,25 +111,118 @@
   }
 
   .btn-secondary {
-    @apply bg-white text-slate-700 font-medium px-4 py-2 rounded-lg border border-slate-200
-           hover:bg-slate-50 active:scale-95
+    @apply bg-card text-text font-medium px-4 py-2 rounded-lg border border-border
+           hover:bg-hover active:scale-95
            transition-all duration-150;
   }
 
   .card {
-    @apply bg-white rounded-xl shadow-card border border-slate-100 p-4;
+    @apply bg-card rounded-xl shadow-card border border-border p-4;
   }
 
   .input {
-    @apply w-full px-3 py-2 rounded-lg border border-slate-200 bg-white
-           text-slate-900 placeholder-slate-400 text-sm
+    @apply w-full px-3 py-2 rounded-lg border border-border bg-card
+           text-text placeholder:text-muted text-sm
            focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary
            transition-colors duration-150;
   }
 }
 
-/* Scrollbar */
-::-webkit-scrollbar { width: 6px; height: 6px; }
+/* ─────────────────────────────────────────────────────────────────────
+   SCROLLBAR — themed per [data-theme]
+   ───────────────────────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { @apply bg-slate-300 rounded-full; }
-::-webkit-scrollbar-thumb:hover { @apply bg-slate-400; }
+::-webkit-scrollbar-thumb {
+  background: rgb(var(--border-rgb));
+  border-radius: 8px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgb(var(--muted-rgb) / 0.6);
+}
+
+[data-theme="midnight"] ::-webkit-scrollbar-thumb {
+  background: rgb(var(--accent-rgb) / 0.4);
+  box-shadow: 0 0 6px rgb(var(--accent-rgb) / 0.5);
+}
+[data-theme="midnight"] ::-webkit-scrollbar-thumb:hover {
+  background: rgb(var(--accent-rgb) / 0.7);
+  box-shadow: 0 0 10px rgb(var(--accent-rgb) / 0.7);
+}
+
+[data-theme="forest"] ::-webkit-scrollbar-thumb {
+  background: rgb(var(--accent-rgb) / 0.35);
+}
+[data-theme="forest"] ::-webkit-scrollbar-thumb:hover {
+  background: rgb(var(--accent-rgb) / 0.6);
+}
+
+/* ─────────────────────────────────────────────────────────────────────
+   THEMED CHECKBOX-ESQUE TASK INDICATORS
+   Used on Dashboard and TasksPage. The .task-check class lets each
+   theme tweak the empty/done state without touching the components.
+   ───────────────────────────────────────────────────────────────────── */
+.task-check {
+  width: 1rem;
+  height: 1rem;
+  border-radius: 9999px;
+  border: 2px solid rgb(var(--muted-rgb) / 0.5);
+  transition: all 0.2s ease;
+}
+.task-check:hover { border-color: rgb(var(--accent-rgb)); }
+
+.task-check.is-overdue { border-color: rgb(239 68 68); }
+
+[data-theme="midnight"] .task-check {
+  border-radius: 4px;
+  border-color: rgb(var(--accent-rgb) / 0.5);
+}
+[data-theme="midnight"] .task-check:hover {
+  box-shadow: 0 0 8px rgb(var(--accent-rgb) / 0.7);
+}
+
+[data-theme="forest"] .task-check { border-radius: 4px; }
+[data-theme="forest"] .task-check:hover {
+  background: rgb(var(--accent-rgb) / 0.15);
+}
+
+/* ─────────────────────────────────────────────────────────────────────
+   FAB — accent glow per theme
+   ───────────────────────────────────────────────────────────────────── */
+.fab-accent {
+  background: rgb(var(--accent-rgb));
+  box-shadow: 0 8px 24px -4px rgb(var(--accent-rgb) / 0.4);
+}
+.fab-accent:hover { background: rgb(var(--accent-dark-rgb)); }
+
+[data-theme="midnight"] .fab-accent {
+  box-shadow: 0 0 24px rgb(var(--accent-rgb) / 0.7),
+              0 0 48px rgb(var(--accent-rgb) / 0.3);
+}
+
+[data-theme="forest"] .fab-accent {
+  box-shadow: 0 8px 24px -4px rgb(var(--accent-rgb) / 0.5);
+}
+
+/* ─────────────────────────────────────────────────────────────────────
+   SIDEBAR ACTIVE NAV — themed accent
+   ───────────────────────────────────────────────────────────────────── */
+.nav-active {
+  background: rgb(var(--accent-rgb) / 0.1);
+  color: rgb(var(--accent-rgb));
+}
+[data-theme="midnight"] .nav-active {
+  background: rgb(var(--accent-rgb) / 0.15);
+  box-shadow: inset 2px 0 0 rgb(var(--accent-rgb)),
+              0 0 12px rgb(var(--accent-rgb) / 0.2);
+}
+[data-theme="forest"] .nav-active {
+  background: rgb(var(--accent-rgb) / 0.12);
+  box-shadow: inset 2px 0 0 rgb(var(--accent-rgb));
+}
+[data-theme="dark"] .nav-active {
+  background: rgb(var(--accent-rgb) / 0.18);
+}
+
+/* Disable transitions on input elements where it causes flicker */
+input, textarea, select { transition: border-color 0.15s ease, box-shadow 0.15s ease; }

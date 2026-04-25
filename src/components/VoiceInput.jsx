@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { supabaseRest, getCurrentUser } from '../lib/supabase'
 
 const S = { IDLE: 'idle', LISTENING: 'listening', PROCESSING: 'processing', ERROR: 'error' }
@@ -6,7 +6,7 @@ const S = { IDLE: 'idle', LISTENING: 'listening', PROCESSING: 'processing', ERRO
 export default function VoiceInput() {
   const [state, setState]     = useState(S.IDLE)
   const [errorMsg, setErrorMsg] = useState('')
-  const [toast, setToast]     = useState(null)   // { message }
+  const [toast, setToast]     = useState(null)
   const [projects, setProjects] = useState([])
   const [team, setTeam]       = useState([])
   const recognitionRef        = useRef(null)
@@ -72,7 +72,6 @@ export default function VoiceInput() {
   async function processAndCreate(text) {
     setState(S.PROCESSING)
     try {
-      // 1. Parse transcript via Claude
       const res = await fetch('/api/tasks', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -83,7 +82,6 @@ export default function VoiceInput() {
 
       const title = parsed.title?.trim() || text
 
-      // 2. Insert directly into Supabase — no modal
       const user = getCurrentUser()
       const result = await supabaseRest('tasks', {
         method: 'POST',
@@ -101,7 +99,6 @@ export default function VoiceInput() {
       })
       if (result.error) throw new Error(result.error.message ?? 'Ошибка создания задачи')
 
-      // 3. Notify other components + show toast
       window.dispatchEvent(new CustomEvent('voiceTaskCreated'))
       showToast(`✓ Задача создана: ${title}`)
       setState(S.IDLE)
@@ -122,10 +119,9 @@ export default function VoiceInput() {
 
   return (
     <>
-      {/* Toast */}
       {toast && (
         <div className="fixed bottom-20 sm:bottom-24 right-4 sm:right-7 z-50 animate-in">
-          <div className="bg-slate-900 text-white text-sm font-medium px-4 py-3 rounded-xl shadow-xl flex items-center gap-2 max-w-xs">
+          <div className="bg-card border border-border text-text text-sm font-medium px-4 py-3 rounded-xl shadow-card-hover flex items-center gap-2 max-w-xs">
             <svg className="w-4 h-4 text-emerald-400 shrink-0" fill="currentColor" viewBox="0 0 20 20">
               <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.857-9.809a.75.75 0 00-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 10-1.06 1.061l2.5 2.5a.75.75 0 001.137-.089l4-5.5z" clipRule="evenodd" />
             </svg>
@@ -134,9 +130,8 @@ export default function VoiceInput() {
         </div>
       )}
 
-      {/* FAB */}
       <div className="group fixed bottom-5 sm:bottom-7 right-4 sm:right-7 z-40 flex items-center gap-3">
-        <span className="hidden sm:inline-block pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-150 bg-slate-800 text-white text-xs font-medium rounded-lg px-2.5 py-1.5 whitespace-nowrap shadow-lg">
+        <span className="hidden sm:inline-block pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-150 bg-card border border-border text-text text-xs font-medium rounded-lg px-2.5 py-1.5 whitespace-nowrap shadow-card">
           {fabLabel ?? 'Голосовая задача'}
         </span>
 
@@ -145,10 +140,10 @@ export default function VoiceInput() {
           disabled={state === S.PROCESSING}
           aria-label="Голосовая задача"
           className={`
-            relative w-14 h-14 rounded-full shadow-xl flex items-center justify-center
+            relative w-14 h-14 rounded-full flex items-center justify-center
             transition-all duration-200 hover:scale-105 active:scale-95
             disabled:opacity-60 disabled:cursor-not-allowed
-            ${state === S.LISTENING ? 'bg-red-500 hover:bg-red-600' : 'bg-primary hover:bg-primary-dark'}
+            ${state === S.LISTENING ? 'bg-red-500 hover:bg-red-600 shadow-xl' : 'fab-accent'}
           `}
         >
           {state === S.LISTENING && (
@@ -165,13 +160,12 @@ export default function VoiceInput() {
         </button>
       </div>
 
-      {/* Error modal */}
       {state === S.ERROR && (
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center px-4 pb-4 sm:pb-0">
-          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={reset} />
-          <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6">
-            <h2 className="text-base font-semibold text-slate-900 mb-3">Ошибка</h2>
-            <div className="flex gap-3 items-start bg-red-50 border border-red-100 text-red-700 text-sm rounded-xl p-3 mb-5">
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={reset} />
+          <div className="relative bg-card border border-border rounded-2xl shadow-2xl w-full max-w-sm p-6">
+            <h2 className="text-base font-semibold text-text mb-3">Ошибка</h2>
+            <div className="flex gap-3 items-start bg-red-500/10 border border-red-500/20 text-red-400 text-sm rounded-xl p-3 mb-5">
               <svg className="w-4 h-4 mt-0.5 shrink-0" fill="currentColor" viewBox="0 0 20 20">
                 <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm-.75-11.25a.75.75 0 011.5 0v4.5a.75.75 0 01-1.5 0v-4.5zm.75 7.5a.75.75 0 100-1.5.75.75 0 000 1.5z" clipRule="evenodd" />
               </svg>

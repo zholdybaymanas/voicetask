@@ -4,9 +4,9 @@ import { useAuth } from '../hooks/useAuth'
 
 const ROLE_LABEL = { admin: 'Администратор', manager: 'Менеджер', member: 'Участник' }
 const ROLE_CLASS = {
-  admin:   'bg-primary/10 text-primary',
-  manager: 'bg-yellow-100 text-yellow-700',
-  member:  'bg-gray-100 text-gray-500',
+  admin:   'bg-primary/15 text-primary',
+  manager: 'bg-amber-500/15 text-amber-500',
+  member:  'bg-hover text-muted',
 }
 
 export default function TeamPage() {
@@ -20,8 +20,6 @@ export default function TeamPage() {
   const [formError, setFormError] = useState('')
   const [success, setSuccess] = useState('')
 
-  // Allow role editing only for admins; everyone can open the "add user" modal
-  // (server-side /api/admin enforces the actual permission).
   const isAdmin = profile?.role === 'admin'
 
   useEffect(() => { loadMembers() }, [])
@@ -73,7 +71,6 @@ export default function TeamPage() {
     if (!res.ok) {
       console.error('[TeamPage] /api/admin error:', res.status, data)
       const raw = data.error ?? `Ошибка ${res.status}`
-      // Friendlier message for the most common setup failure
       if (/SERVICE_ROLE_KEY|SUPABASE_URL/i.test(raw)) {
         return setFormError(
           'Не настроен SUPABASE_SERVICE_ROLE_KEY. Добавьте его в .env (локально) или в Environment Variables в Vercel — см. DEPLOY.md.'
@@ -100,7 +97,7 @@ export default function TeamPage() {
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between gap-3">
-        <p className="text-sm text-gray-500">{members.length} участников</p>
+        <p className="text-sm text-muted">{members.length} участников</p>
         <button
           className="btn-primary flex items-center gap-1.5 text-sm shrink-0"
           onClick={() => { setModalOpen(true); setFormError(''); setSuccess('') }}
@@ -118,30 +115,27 @@ export default function TeamPage() {
         </div>
       ) : error ? (
         <div className="flex flex-col items-center justify-center h-40 gap-3 text-center">
-          <p className="text-sm text-slate-500">{error}</p>
+          <p className="text-sm text-muted">{error}</p>
           <button className="btn-secondary text-sm" onClick={loadMembers}>Повторить</button>
         </div>
       ) : (
         <div className="card p-0 overflow-hidden">
-          <div className="divide-y divide-gray-50">
+          <div className="divide-y divide-border">
             {members.map(m => (
-              <div key={m.id} className="flex items-center gap-3 sm:gap-4 px-4 sm:px-5 py-3.5 hover:bg-gray-50/50 transition-colors">
-                {/* Avatar */}
+              <div key={m.id} className="flex items-center gap-3 sm:gap-4 px-4 sm:px-5 py-3.5 hover:bg-hover transition-colors">
                 <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center text-primary font-semibold text-sm shrink-0">
                   {initials(m)}
                 </div>
 
-                {/* Info */}
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-gray-900 truncate">
+                  <p className="text-sm font-medium text-text truncate">
                     {m.full_name || m.email}
                   </p>
                   {m.full_name && (
-                    <p className="text-xs text-gray-400 truncate">{m.email}</p>
+                    <p className="text-xs text-muted truncate">{m.email}</p>
                   )}
                 </div>
 
-                {/* Role */}
                 {isAdmin ? (
                   <select
                     value={m.role ?? 'member'}
@@ -158,8 +152,7 @@ export default function TeamPage() {
                   </span>
                 )}
 
-                {/* Joined */}
-                <span className="text-xs text-gray-400 hidden md:block shrink-0">
+                <span className="text-xs text-muted hidden md:block shrink-0">
                   {new Date(m.created_at).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' })}
                 </span>
               </div>
@@ -168,14 +161,13 @@ export default function TeamPage() {
         </div>
       )}
 
-      {/* Add user modal */}
       {modalOpen && (
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center px-0 sm:px-4">
-          <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" onClick={() => setModalOpen(false)} />
-          <div className="relative bg-white rounded-t-2xl sm:rounded-2xl shadow-xl w-full max-w-md p-5 sm:p-6">
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setModalOpen(false)} />
+          <div className="relative bg-card border border-border rounded-t-2xl sm:rounded-2xl shadow-2xl w-full max-w-md p-5 sm:p-6">
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-base font-semibold text-gray-900">Добавить пользователя</h2>
-              <button onClick={() => setModalOpen(false)} className="text-gray-400 hover:text-gray-600">
+              <h2 className="text-base font-semibold text-text">Добавить пользователя</h2>
+              <button onClick={() => setModalOpen(false)} className="text-muted hover:text-text">
                 <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
                 </svg>
@@ -184,30 +176,30 @@ export default function TeamPage() {
 
             {success ? (
               <div className="text-center py-4">
-                <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-3">
-                  <svg className="w-6 h-6 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <div className="w-12 h-12 bg-emerald-500/15 rounded-full flex items-center justify-center mx-auto mb-3">
+                  <svg className="w-6 h-6 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
                   </svg>
                 </div>
-                <p className="text-sm font-medium text-gray-900 mb-4">{success}</p>
+                <p className="text-sm font-medium text-text mb-4">{success}</p>
                 <button className="btn-primary" onClick={() => { setSuccess(''); setModalOpen(false) }}>Готово</button>
               </div>
             ) : (
               <form onSubmit={handleCreate} className="space-y-3">
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Email *</label>
+                  <label className="block text-xs font-medium text-text mb-1">Email *</label>
                   <input type="email" className="input" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} placeholder="user@company.com" autoFocus />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Имя</label>
+                  <label className="block text-xs font-medium text-text mb-1">Имя</label>
                   <input className="input" value={form.full_name} onChange={e => setForm(f => ({ ...f, full_name: e.target.value }))} placeholder="Иванов Иван" />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Пароль *</label>
+                  <label className="block text-xs font-medium text-text mb-1">Пароль *</label>
                   <input type="password" className="input" value={form.password} onChange={e => setForm(f => ({ ...f, password: e.target.value }))} placeholder="Минимум 6 символов" />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Роль</label>
+                  <label className="block text-xs font-medium text-text mb-1">Роль</label>
                   <select className="input" value={form.role} onChange={e => setForm(f => ({ ...f, role: e.target.value }))}>
                     <option value="member">Участник</option>
                     <option value="manager">Менеджер</option>
@@ -215,7 +207,7 @@ export default function TeamPage() {
                   </select>
                 </div>
 
-                {formError && <p className="text-xs text-red-600 bg-red-50 rounded-lg px-3 py-2 break-words">{formError}</p>}
+                {formError && <p className="text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2 break-words">{formError}</p>}
 
                 <div className="flex justify-end gap-2 pt-1">
                   <button type="button" className="btn-secondary" onClick={() => setModalOpen(false)}>Отмена</button>

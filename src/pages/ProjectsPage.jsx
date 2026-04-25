@@ -93,16 +93,15 @@ export default function ProjectsPage() {
 
   if (error) return (
     <div className="flex flex-col items-center justify-center h-48 gap-3 text-center">
-      <p className="text-sm text-slate-500">{error}</p>
+      <p className="text-sm text-muted">{error}</p>
       <button className="btn-secondary text-sm" onClick={loadProjects}>Повторить</button>
     </div>
   )
 
   return (
     <div className="space-y-5">
-      {/* Header */}
       <div className="flex items-center justify-between gap-3">
-        <p className="text-sm text-slate-500">{projects.length} проектов</p>
+        <p className="text-sm text-muted">{projects.length} проектов</p>
         <button
           className="btn-primary flex items-center gap-1.5 text-sm shrink-0"
           onClick={() => { setModalOpen(true); setFormError('') }}
@@ -115,17 +114,16 @@ export default function ProjectsPage() {
         </button>
       </div>
 
-      {/* Grid */}
       {projects.length === 0 ? (
-        <div className="bg-white rounded-xl border border-slate-100 shadow-sm flex flex-col items-center justify-center py-16 text-center">
-          <div className="w-12 h-12 bg-[#EEF2FF] rounded-full flex items-center justify-center mb-3">
+        <div className="bg-card rounded-xl border border-border shadow-card flex flex-col items-center justify-center py-16 text-center">
+          <div className="w-12 h-12 bg-primary/10 rounded-full flex items-center justify-center mb-3">
             <svg className="w-6 h-6 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
               <path strokeLinecap="round" strokeLinejoin="round"
                 d="M2.25 12.75V12A2.25 2.25 0 014.5 9.75h15A2.25 2.25 0 0121.75 12v.75m-8.69-6.44l-2.12-2.12a1.5 1.5 0 00-1.061-.44H4.5A2.25 2.25 0 002.25 6v12a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9a2.25 2.25 0 00-2.25-2.25h-5.379a1.5 1.5 0 01-1.06-.44z" />
             </svg>
           </div>
-          <p className="text-sm font-medium text-slate-700">Проектов пока нет</p>
-          <p className="text-xs text-slate-400 mt-1">Создайте первый проект</p>
+          <p className="text-sm font-medium text-text">Проектов пока нет</p>
+          <p className="text-xs text-muted mt-1">Создайте первый проект</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
@@ -134,22 +132,21 @@ export default function ProjectsPage() {
             const done     = doneCounts[p.id] ?? 0
             const progress = total > 0 ? Math.round((done / total) * 100) : 0
             return (
-              <div key={p.id} className="bg-white rounded-xl border border-slate-100 shadow-sm hover:shadow-card-hover transition-shadow overflow-hidden group">
-                {/* Color bar */}
+              <div key={p.id} className="bg-card rounded-xl border border-border shadow-card hover:shadow-card-hover transition-shadow overflow-hidden group">
                 <div className="h-1.5" style={{ backgroundColor: p.color ?? '#2D5BE3' }} />
 
                 <div className="p-4">
                   <div className="flex items-start justify-between mb-3 gap-2">
                     <div className="min-w-0">
-                      <p className="text-sm font-semibold text-slate-900 truncate">{p.name}</p>
+                      <p className="text-sm font-semibold text-text truncate">{p.name}</p>
                       {p.description && (
-                        <p className="text-xs text-slate-500 mt-0.5 line-clamp-2">{p.description}</p>
+                        <p className="text-xs text-muted mt-0.5 line-clamp-2">{p.description}</p>
                       )}
                     </div>
                     <button
                       onClick={() => archiveProject(p.id)}
                       title="Архивировать"
-                      className="md:opacity-0 md:group-hover:opacity-100 transition-opacity text-slate-300 hover:text-slate-500 p-1 rounded shrink-0"
+                      className="md:opacity-0 md:group-hover:opacity-100 transition-opacity text-muted hover:text-text p-1 rounded shrink-0"
                     >
                       <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                         <path strokeLinecap="round" strokeLinejoin="round"
@@ -158,19 +155,18 @@ export default function ProjectsPage() {
                     </button>
                   </div>
 
-                  {/* Progress */}
                   <div className="space-y-1.5">
-                    <div className="flex items-center justify-between text-xs text-slate-500">
+                    <div className="flex items-center justify-between text-xs text-muted">
                       <span>{total} задач</span>
                       <span>{progress}%</span>
                     </div>
-                    <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                    <div className="h-1.5 bg-hover rounded-full overflow-hidden">
                       <div
                         className="h-full rounded-full transition-all duration-300"
                         style={{ width: `${progress}%`, backgroundColor: p.color ?? '#2D5BE3' }}
                       />
                     </div>
-                    <p className="text-xs text-slate-400">{done} из {total} выполнено</p>
+                    <p className="text-xs text-muted">{done} из {total} выполнено</p>
                   </div>
                 </div>
               </div>
@@ -179,40 +175,39 @@ export default function ProjectsPage() {
         </div>
       )}
 
-      {/* Create modal */}
       {modalOpen && (
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center px-0 sm:px-4">
-          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setModalOpen(false)} />
-          <div className="relative bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl w-full max-w-md p-5 sm:p-6">
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setModalOpen(false)} />
+          <div className="relative bg-card border border-border rounded-t-2xl sm:rounded-2xl shadow-2xl w-full max-w-md p-5 sm:p-6">
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-base font-semibold text-slate-900">Новый проект</h2>
-              <button onClick={() => setModalOpen(false)} className="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100">
+              <h2 className="text-base font-semibold text-text">Новый проект</h2>
+              <button onClick={() => setModalOpen(false)} className="text-muted hover:text-text p-1 rounded-lg hover:bg-hover">
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
               </button>
             </div>
             <form onSubmit={handleCreate} className="space-y-4">
               <div>
-                <label className="block text-xs font-medium text-slate-600 mb-1">Название *</label>
+                <label className="block text-xs font-medium text-text mb-1">Название *</label>
                 <input className="input" autoFocus value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Название проекта" />
               </div>
               <div>
-                <label className="block text-xs font-medium text-slate-600 mb-1">Описание</label>
+                <label className="block text-xs font-medium text-text mb-1">Описание</label>
                 <textarea className="input resize-none" rows={2} value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} placeholder="Необязательно" />
               </div>
               <div>
-                <label className="block text-xs font-medium text-slate-600 mb-2">Цвет</label>
+                <label className="block text-xs font-medium text-text mb-2">Цвет</label>
                 <div className="flex gap-2 flex-wrap">
                   {COLORS.map(c => (
                     <button
                       key={c} type="button"
                       onClick={() => setForm(f => ({ ...f, color: c }))}
-                      className={`w-7 h-7 rounded-full transition-all ${form.color === c ? 'ring-2 ring-offset-2 ring-slate-400 scale-110' : 'hover:scale-110'}`}
+                      className={`w-7 h-7 rounded-full transition-all ${form.color === c ? 'ring-2 ring-offset-2 ring-offset-card ring-text scale-110' : 'hover:scale-110'}`}
                       style={{ backgroundColor: c }}
                     />
                   ))}
                 </div>
               </div>
-              {formError && <p className="text-xs text-red-600 bg-red-50 rounded-lg px-3 py-2 break-words">{formError}</p>}
+              {formError && <p className="text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2 break-words">{formError}</p>}
               <div className="flex justify-end gap-2 pt-1">
                 <button type="button" className="btn-secondary" onClick={() => setModalOpen(false)}>Отмена</button>
                 <button type="submit" className="btn-primary flex items-center gap-2" disabled={saving}>

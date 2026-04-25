@@ -9,15 +9,12 @@ const STATUS_OPTIONS = [
   { value: 'cancelled',   label: 'Отменено' },
 ]
 const STATUS_BADGE = {
-  todo:        'bg-slate-100 text-slate-500',
-  in_progress: 'bg-blue-50 text-primary font-semibold',
-  done:        'bg-emerald-50 text-emerald-700',
-  cancelled:   'bg-slate-100 text-slate-400',
+  todo:        'bg-hover text-muted',
+  in_progress: 'bg-primary/15 text-primary font-semibold',
+  done:        'bg-emerald-500/15 text-emerald-500',
+  cancelled:   'bg-hover text-muted',
 }
-const STATUS_LABEL = {
-  todo: 'К выполнению', in_progress: 'В работе', done: 'Готово', cancelled: 'Отменено',
-}
-const PRIORITY_DOT  = { high: 'bg-red-500', medium: 'bg-amber-400', low: 'bg-slate-300' }
+const PRIORITY_DOT  = { high: 'bg-red-500', medium: 'bg-amber-400', low: 'bg-muted' }
 const PRIORITY_LABEL = { low: 'Низкий', medium: 'Средний', high: 'Высокий' }
 
 export default function TasksPage() {
@@ -85,7 +82,6 @@ export default function TasksPage() {
 
   return (
     <div className="space-y-4">
-      {/* Top bar */}
       <div className="flex flex-wrap items-center gap-2">
         <select className="input w-auto text-sm" value={filterProject} onChange={e => setFilterProject(e.target.value)}>
           <option value="">Все проекты</option>
@@ -103,7 +99,7 @@ export default function TasksPage() {
             Сбросить
           </button>
         )}
-        <span className="text-xs text-slate-400 ml-1">{filtered.length}</span>
+        <span className="text-xs text-muted ml-1">{filtered.length}</span>
         <div className="flex-1" />
         <button className="btn-primary text-sm flex items-center gap-1.5 shrink-0" onClick={() => setAddOpen(true)}>
           <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
@@ -113,12 +109,10 @@ export default function TasksPage() {
         </button>
       </div>
 
-      {/* List / Table */}
-      <div className="bg-white rounded-xl border border-slate-100 shadow-sm overflow-hidden">
-        {/* Header row (desktop only) */}
-        <div className="hidden md:grid grid-cols-[1fr_160px_140px_110px_130px] gap-4 px-4 py-2.5 border-b border-slate-100 bg-slate-50/60">
+      <div className="bg-card rounded-xl border border-border shadow-card overflow-hidden">
+        <div className="hidden md:grid grid-cols-[1fr_160px_140px_110px_130px] gap-4 px-4 py-2.5 border-b border-border bg-hover">
           {['Задача', 'Проект', 'Исполнитель', 'Дедлайн', 'Статус'].map(h => (
-            <span key={h} className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide">{h}</span>
+            <span key={h} className="text-[11px] font-semibold text-muted uppercase tracking-wide">{h}</span>
           ))}
         </div>
 
@@ -128,23 +122,22 @@ export default function TasksPage() {
           </div>
         ) : error ? (
           <div className="flex flex-col items-center justify-center py-12 gap-3 text-center px-4">
-            <p className="text-sm text-slate-500 break-words">{error}</p>
+            <p className="text-sm text-muted break-words">{error}</p>
             <button className="btn-secondary text-sm" onClick={loadAll}>Повторить</button>
           </div>
         ) : filtered.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 text-center">
-            <p className="text-sm font-medium text-slate-700">Задач не найдено</p>
-            <p className="text-xs text-slate-400 mt-1">Попробуйте изменить фильтры</p>
+            <p className="text-sm font-medium text-text">Задач не найдено</p>
+            <p className="text-xs text-muted mt-1">Попробуйте изменить фильтры</p>
           </div>
         ) : (
-          <div className="divide-y divide-slate-50">
+          <div className="divide-y divide-border">
             {filtered.map(task => {
               const isOverdue = task.due_date && task.due_date < today && task.status !== 'done' && task.status !== 'cancelled'
               const assignee  = task.profiles ?? assigneeById[task.assignee_id]
               const isDone    = task.status === 'done'
               return (
-                <div key={task.id} className="px-4 py-3 hover:bg-slate-50/60 transition-colors">
-                  {/* Desktop: grid row */}
+                <div key={task.id} className="px-4 py-3 hover:bg-hover transition-colors">
                   <div className="hidden md:grid grid-cols-[1fr_160px_140px_110px_130px] gap-4 items-center">
                     <TaskTitle task={task} isDone={isDone} />
                     <ProjectBadge project={task.projects} />
@@ -153,7 +146,6 @@ export default function TasksPage() {
                     <StatusSelect value={task.status} onChange={s => updateStatus(task.id, s)} />
                   </div>
 
-                  {/* Mobile: stacked card */}
                   <div className="md:hidden space-y-2">
                     <div className="flex items-start justify-between gap-2">
                       <TaskTitle task={task} isDone={isDone} />
@@ -172,7 +164,6 @@ export default function TasksPage() {
         )}
       </div>
 
-      {/* Add task modal */}
       {addOpen && (
         <AddTaskModal
           projects={projects}
@@ -188,13 +179,13 @@ export default function TasksPage() {
 function TaskTitle({ task, isDone }) {
   return (
     <div className="flex items-center gap-2.5 min-w-0">
-      <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${PRIORITY_DOT[task.priority] ?? 'bg-slate-300'}`} title={PRIORITY_LABEL[task.priority]} />
+      <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${PRIORITY_DOT[task.priority] ?? 'bg-muted'}`} title={PRIORITY_LABEL[task.priority]} />
       <div className="min-w-0">
-        <p className={`text-sm truncate ${isDone ? 'text-slate-400 line-through' : 'text-slate-800 font-medium'}`}>
+        <p className={`text-sm truncate ${isDone ? 'text-muted line-through' : 'text-text font-medium'}`}>
           {task.title}
         </p>
         {task.description && (
-          <p className="text-xs text-slate-400 truncate mt-0.5">{task.description}</p>
+          <p className="text-xs text-muted truncate mt-0.5">{task.description}</p>
         )}
       </div>
     </div>
@@ -202,9 +193,9 @@ function TaskTitle({ task, isDone }) {
 }
 
 function ProjectBadge({ project }) {
-  if (!project) return <span className="text-slate-300 text-sm">—</span>
+  if (!project) return <span className="text-muted text-sm">—</span>
   return (
-    <span className="inline-flex items-center gap-1.5 text-xs text-slate-600 bg-slate-100 px-2 py-0.5 rounded-full max-w-full">
+    <span className="inline-flex items-center gap-1.5 text-xs text-text bg-hover px-2 py-0.5 rounded-full max-w-full">
       <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: project.color ?? '#2D5BE3' }} />
       <span className="truncate">{project.name}</span>
     </span>
@@ -212,21 +203,21 @@ function ProjectBadge({ project }) {
 }
 
 function AssigneeBadge({ user }) {
-  if (!user) return <span className="text-slate-300 text-sm">—</span>
+  if (!user) return <span className="text-muted text-sm">—</span>
   return (
     <div className="flex items-center gap-1.5">
       <div className="w-5 h-5 rounded-full bg-primary/10 flex items-center justify-center text-primary text-[10px] font-bold shrink-0">
         {(user.full_name ?? user.email ?? '?')[0].toUpperCase()}
       </div>
-      <span className="text-xs text-slate-600 truncate">{user.full_name || user.email}</span>
+      <span className="text-xs text-muted truncate">{user.full_name || user.email}</span>
     </div>
   )
 }
 
 function DueDate({ date, isOverdue }) {
-  if (!date) return <span className="text-slate-300 text-sm">—</span>
+  if (!date) return <span className="text-muted text-sm">—</span>
   return (
-    <span className={`text-xs ${isOverdue ? 'text-red-500 font-medium' : 'text-slate-500'}`}>
+    <span className={`text-xs ${isOverdue ? 'text-red-500 font-medium' : 'text-muted'}`}>
       {new Date(date + 'T00:00:00').toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })}
     </span>
   )
@@ -282,33 +273,33 @@ function AddTaskModal({ projects, team, onClose, onCreated }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center px-0 sm:px-4">
-      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl w-full max-w-md p-5 sm:p-6 max-h-[90vh] overflow-y-auto">
+      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative bg-card border border-border rounded-t-2xl sm:rounded-2xl shadow-2xl w-full max-w-md p-5 sm:p-6 max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-base font-semibold text-slate-900">Новая задача</h2>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100">
+          <h2 className="text-base font-semibold text-text">Новая задача</h2>
+          <button onClick={onClose} className="text-muted hover:text-text p-1 rounded-lg hover:bg-hover">
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
           </button>
         </div>
         <form onSubmit={handleSubmit} className="space-y-3">
           <div>
-            <label className="block text-xs font-medium text-slate-600 mb-1">Название *</label>
+            <label className="block text-xs font-medium text-text mb-1">Название *</label>
             <input className="input" autoFocus value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))} placeholder="Название задачи" />
           </div>
           <div>
-            <label className="block text-xs font-medium text-slate-600 mb-1">Описание</label>
+            <label className="block text-xs font-medium text-text mb-1">Описание</label>
             <textarea className="input resize-none" rows={2} value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} placeholder="Необязательно" />
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1">Проект</label>
+              <label className="block text-xs font-medium text-text mb-1">Проект</label>
               <select className="input" value={form.project_id} onChange={e => setForm(f => ({ ...f, project_id: e.target.value }))}>
                 <option value="">— не выбран —</option>
                 {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
               </select>
             </div>
             <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1">Исполнитель</label>
+              <label className="block text-xs font-medium text-text mb-1">Исполнитель</label>
               <select className="input" value={form.assignee_id} onChange={e => setForm(f => ({ ...f, assignee_id: e.target.value }))}>
                 <option value="">— не назначен —</option>
                 {team.map(u => <option key={u.id} value={u.id}>{u.full_name || u.email}</option>)}
@@ -317,11 +308,11 @@ function AddTaskModal({ projects, team, onClose, onCreated }) {
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1">Дедлайн</label>
+              <label className="block text-xs font-medium text-text mb-1">Дедлайн</label>
               <input type="date" className="input" value={form.due_date} onChange={e => setForm(f => ({ ...f, due_date: e.target.value }))} />
             </div>
             <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1">Приоритет</label>
+              <label className="block text-xs font-medium text-text mb-1">Приоритет</label>
               <select className="input" value={form.priority} onChange={e => setForm(f => ({ ...f, priority: e.target.value }))}>
                 <option value="low">Низкий</option>
                 <option value="medium">Средний</option>
@@ -329,7 +320,7 @@ function AddTaskModal({ projects, team, onClose, onCreated }) {
               </select>
             </div>
             <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1">Статус</label>
+              <label className="block text-xs font-medium text-text mb-1">Статус</label>
               <select className="input" value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value }))}>
                 <option value="todo">К выполнению</option>
                 <option value="in_progress">В работе</option>
@@ -337,7 +328,7 @@ function AddTaskModal({ projects, team, onClose, onCreated }) {
               </select>
             </div>
           </div>
-          {err && <p className="text-xs text-red-600 bg-red-50 rounded-lg px-3 py-2 break-words">{err}</p>}
+          {err && <p className="text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2 break-words">{err}</p>}
           <div className="flex justify-end gap-2 pt-1">
             <button type="button" className="btn-secondary" onClick={onClose}>Отмена</button>
             <button type="submit" className="btn-primary flex items-center gap-2" disabled={saving}>
