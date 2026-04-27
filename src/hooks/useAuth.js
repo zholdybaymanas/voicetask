@@ -61,6 +61,10 @@ export function useAuth() {
       password,
       options: {
         data: { full_name: fullName?.trim() || '' },
+        // Send confirmation links back to whichever origin the user is
+        // signing up from. Without this, Supabase falls back to its
+        // configured Site URL (often still localhost).
+        emailRedirectTo: typeof window !== 'undefined' ? window.location.origin : undefined,
       },
     })
     if (error) setError(error.message)
