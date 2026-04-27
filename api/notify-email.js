@@ -57,12 +57,14 @@ export default async function handler(req, res) {
   `
 
   try {
+    console.log('Sending email to:', to)
     const result = await resend.emails.send({
       from,
       to,
       subject: `Вам назначена новая задача: ${taskTitle}`,
       html,
     })
+    console.log('Resend response:', JSON.stringify(result))
     if (result.error) {
       console.error('[notify-email] Resend error:', result.error)
       return res.status(502).json({ error: result.error.message ?? 'Ошибка Resend' })
