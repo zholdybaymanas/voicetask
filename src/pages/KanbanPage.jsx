@@ -10,10 +10,10 @@ import { descriptionPreview } from '../lib/description'
 import TaskDetailDrawer from '../components/TaskDetailDrawer'
 
 const COLUMNS = [
-  { id: 'pending',     label: 'Входящие',    accent: 'bg-slate-400',   accentText: 'text-slate-400' },
-  { id: 'in_progress', label: 'В работе',    accent: 'bg-amber-400',   accentText: 'text-amber-400' },
-  { id: 'review',      label: 'На проверке', accent: 'bg-violet-400',  accentText: 'text-violet-400' },
-  { id: 'done',        label: 'Готово',      accent: 'bg-emerald-500', accentText: 'text-emerald-500' },
+  { id: 'pending',     label: 'Входящие',    shortLabel: 'Входящие', accent: 'bg-slate-400',   accentText: 'text-slate-400' },
+  { id: 'in_progress', label: 'В работе',    shortLabel: 'В работе', accent: 'bg-amber-400',   accentText: 'text-amber-400' },
+  { id: 'review',      label: 'На проверке', shortLabel: 'Проверка', accent: 'bg-violet-400',  accentText: 'text-violet-400' },
+  { id: 'done',        label: 'Готово',      shortLabel: 'Готово',   accent: 'bg-emerald-500', accentText: 'text-emerald-500' },
 ]
 
 const PRIORITY_DOT = { high: 'bg-red-500', medium: 'bg-amber-400', low: 'bg-muted' }
@@ -311,8 +311,8 @@ function MobileBoard({
 
   return (
     <>
-      {/* Tabs */}
-      <div className="flex gap-1 overflow-x-auto -mx-4 px-4 border-b border-border mb-3">
+      {/* Tabs — fit all four into one row, no horizontal scroll */}
+      <div className="flex -mx-4 px-4 border-b border-border mb-3">
         {COLUMNS.map(c => {
           const isActive = c.id === activeColumn
           const count = tasksByStatus[c.id]?.length ?? 0
@@ -321,17 +321,13 @@ function MobileBoard({
               key={c.id}
               onClick={() => setActiveColumn(c.id)}
               className={`
-                shrink-0 px-3 py-2.5 text-sm font-medium transition-colors relative
+                flex-1 min-w-0 px-0.5 py-2 text-xs font-medium transition-colors relative truncate
                 ${isActive ? 'text-text' : 'text-muted hover:text-text'}
               `}
             >
-              <span className="flex items-center gap-1.5">
-                <span className={`w-1.5 h-1.5 rounded-full ${c.accent}`} />
-                {c.label}
-                <span className="text-xs text-muted">{count}</span>
-              </span>
+              {c.shortLabel ?? c.label} ({count})
               {isActive && (
-                <span className="absolute left-2 right-2 -bottom-px h-0.5 bg-primary rounded-full" />
+                <span className="absolute left-1 right-1 -bottom-px h-0.5 bg-primary rounded-full" />
               )}
             </button>
           )
