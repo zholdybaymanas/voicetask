@@ -54,6 +54,19 @@ export function useAuth() {
     return { data, error }
   }
 
+  async function signUp(email, password, fullName) {
+    setError(null)
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        data: { full_name: fullName?.trim() || '' },
+      },
+    })
+    if (error) setError(error.message)
+    return { data, error }
+  }
+
   async function signOut() {
     setError(null)
     const { error } = await supabase.auth.signOut()
@@ -61,5 +74,5 @@ export function useAuth() {
     return { error }
   }
 
-  return { session, user, profile, loading, error, signIn, signOut }
+  return { session, user, profile, loading, error, signIn, signUp, signOut }
 }

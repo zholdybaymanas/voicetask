@@ -15,6 +15,48 @@
 - `anon public` ключ → `VITE_SUPABASE_ANON_KEY`
 - `service_role` ключ → `SUPABASE_SERVICE_ROLE_KEY` ⚠️ **только серверный — никогда не в frontend**
 
+### 1.2.1. Auto-создание профиля при регистрации
+
+Чтобы новые пользователи (signup и admin createUser) автоматически получали строку в `profiles`, добавь триггер. В Supabase **SQL Editor** → New query:
+
+```sql
+-- Функция, создающая profile при insert в auth.users
+create or replace function public.handle_new_user()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  insert into public.profiles (id, email, full_name, role)
+  values (
+    new.id,
+    new.email,
+    coalesce(new.raw_user_meta_data->>'full_name', ''),
+    'member'
+  )
+  on conflict (id) do nothing;
+  return new;
+end;
+$$;
+
+-- Триггер
+drop trigger if exists on_auth_user_created on auth.users;
+create trigger on_auth_user_created
+  after insert on auth.users
+  for each row execute function public.handle_new_user();
+```
+
+После применения: каждая регистрация (signup на `/auth` или из `/api/admin`) создаёт профиль с ролью `member`. Менять роль может админ через TeamPage.
+
+### 1.2.2. Email confirmation (опционально)
+
+По умолчанию Supabase требует подтверждения email перед первым входом. Для команды разработчиков это может быть неудобно. Если хотите, чтобы регистрация сразу логинила:
+
+**Authentication → Providers → Email** → отключить **Confirm email**.
+
+Если оставлено включённым — после signup юзер увидит сообщение «Подтвердите email», и должен кликнуть по ссылке в письме перед первым входом.
+
 ### 1.3. RLS политики (если ещё не настроены)
 
 Минимальные политики для работы приложения:
