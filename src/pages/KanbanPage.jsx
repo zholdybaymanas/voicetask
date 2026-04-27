@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import {
   DndContext, DragOverlay, PointerSensor, TouchSensor,
   useDraggable, useDroppable, useSensor, useSensors,
@@ -10,23 +10,40 @@ import { descriptionPreview } from '../lib/description'
 import TaskDetailDrawer from '../components/TaskDetailDrawer'
 
 const COLUMNS = [
-  { id: 'pending',     label: 'Входящие',    accent: 'bg-slate-400' },
-  { id: 'in_progress', label: 'В работе',    accent: 'bg-amber-400' },
-  { id: 'review',      label: 'На проверке', accent: 'bg-violet-400' },
-  { id: 'done',        label: 'Готово',      accent: 'bg-emerald-500' },
+  { id: 'pending',     label: 'Входящие',    accent: 'bg-slate-400',   accentText: 'text-slate-400' },
+  { id: 'in_progress', label: 'В работе',    accent: 'bg-amber-400',   accentText: 'text-amber-400' },
+  { id: 'review',      label: 'На проверке', accent: 'bg-violet-400',  accentText: 'text-violet-400' },
+  { id: 'done',        label: 'Готово',      accent: 'bg-emerald-500', accentText: 'text-emerald-500' },
 ]
 
 const PRIORITY_DOT = { high: 'bg-red-500', medium: 'bg-amber-400', low: 'bg-muted' }
 
-// Map legacy statuses to new column ids so old rows still appear after migration.
 function normalizeStatus(s) {
   if (s === 'todo') return 'pending'
   if (s === 'cancelled') return 'done'
   return s ?? 'pending'
 }
 
+function useIsMobile() {
+  const [isMobile, setIsMobile] = useState(() =>
+    typeof window !== 'undefined' && window.innerWidth < 768
+  )
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 767px)')
+    const onChange = (e) => setIsMobile(e.matches)
+    if (mq.addEventListener) mq.addEventListener('change', onChange)
+    else mq.addListener(onChange)
+    return () => {
+      if (mq.removeEventListener) mq.removeEventListener('change', onChange)
+      else mq.removeListener(onChange)
+    }
+  }, [])
+  return isMobile
+}
+
 export default function KanbanPage() {
   const { user, profile } = useAuth()
+  const isMobile = useIsMobile()
   const [tasks, setTasks]     = useState([])
   const [projects, setProjects] = useState([])
   const [team, setTeam]       = useState([])
@@ -34,7 +51,9 @@ export default function KanbanPage() {
   const [error, setError]     = useState(null)
   const [activeId, setActiveId] = useState(null)
   const [selectedId, setSelectedId] = useState(null)
-  const [adding, setAdding]   = useState(null) // status string when input visible
+  const [adding, setAdding]   = useState(null)
+  const [activeColumn, setActiveColumn] = useState('pending')
+  const [moveMenuTask, setMoveMenuTask] = useState(null)
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -109,7 +128,6 @@ export default function KanbanPage() {
     const fromStatus = normalizeStatus(task.status)
     if (fromStatus === toStatus) return
 
-    // Optimistic update
     setTasks(prev => prev.map(t => t.id === task.id ? { ...t, status: toStatus } : t))
 
     const { error } = await supabasePatch('tasks', task.id, { status: toStatus })
@@ -119,10 +137,8 @@ export default function KanbanPage() {
       return
     }
 
-    // Notify the creator on review / done — only when it's not a self-task.
     if (task.created_by && task.assignee_id && task.created_by !== task.assignee_id) {
       const me = user?.id
-      // The mover is `me`. Notify the other person (creator if I'm assignee, assignee if I'm creator).
       const actorIsAssignee = me === task.assignee_id
       const recipient = actorIsAssignee ? task.created_by : null
 
@@ -179,55 +195,68 @@ export default function KanbanPage() {
   if (error) return (
     <div className="flex flex-col items-center justify-center h-48 gap-3 text-center">
       <p className="text-sm text-muted">{error}</p>
-      <button className="btn-secondary text-sm" onClick={loadAll}>Повторить</button>
+      <button className="btn-secondary text-sm" onClick={() => loadAll()}>Повторить</button>
     </div>
   )
 
   return (
     <div className="-mx-4 sm:-mx-6 px-4 sm:px-6">
-      <DndContext
-        sensors={sensors}
-        collisionDetection={closestCorners}
-        onDragStart={({ active }) => setActiveId(active.id)}
-        onDragEnd={({ active, over }) => {
-          setActiveId(null)
-          if (!over) return
-          const task = tasks.find(t => t.id === active.id)
-          if (!task) return
-          // `over.id` is either a column id or a task id (when hovering a card).
-          // Resolve to the column.
-          const overTask = tasks.find(t => t.id === over.id)
-          const targetStatus = overTask ? normalizeStatus(overTask.status) : over.id
-          if (!COLUMNS.find(c => c.id === targetStatus)) return
-          moveTask(task, targetStatus)
-        }}
-        onDragCancel={() => setActiveId(null)}
-      >
-        <div className="
-          flex gap-3 overflow-x-auto pb-2
-          lg:grid lg:grid-cols-4 lg:overflow-visible
-        ">
-          {COLUMNS.map(col => (
-            <Column
-              key={col.id}
-              column={col}
-              tasks={tasksByStatus[col.id]}
-              teamById={teamById}
-              onCardClick={setSelectedId}
-              isAdding={adding === col.id}
-              onAddOpen={() => setAdding(col.id)}
-              onAddClose={() => setAdding(null)}
-              onAddSubmit={title => { quickCreate(col.id, title); setAdding(null) }}
-            />
-          ))}
-        </div>
+      {isMobile ? (
+        <MobileBoard
+          activeColumn={activeColumn}
+          setActiveColumn={setActiveColumn}
+          tasksByStatus={tasksByStatus}
+          teamById={teamById}
+          onCardClick={setSelectedId}
+          onLongPress={setMoveMenuTask}
+          isAdding={adding === activeColumn}
+          onAddOpen={() => setAdding(activeColumn)}
+          onAddClose={() => setAdding(null)}
+          onAddSubmit={title => { quickCreate(activeColumn, title); setAdding(null) }}
+        />
+      ) : (
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCorners}
+          onDragStart={({ active }) => setActiveId(active.id)}
+          onDragEnd={({ active, over }) => {
+            setActiveId(null)
+            if (!over) return
+            const task = tasks.find(t => t.id === active.id)
+            if (!task) return
+            const overTask = tasks.find(t => t.id === over.id)
+            const targetStatus = overTask ? normalizeStatus(overTask.status) : over.id
+            if (!COLUMNS.find(c => c.id === targetStatus)) return
+            moveTask(task, targetStatus)
+          }}
+          onDragCancel={() => setActiveId(null)}
+        >
+          <div className="
+            flex gap-3 overflow-x-auto pb-2
+            lg:grid lg:grid-cols-4 lg:overflow-visible
+          ">
+            {COLUMNS.map(col => (
+              <Column
+                key={col.id}
+                column={col}
+                tasks={tasksByStatus[col.id]}
+                teamById={teamById}
+                onCardClick={setSelectedId}
+                isAdding={adding === col.id}
+                onAddOpen={() => setAdding(col.id)}
+                onAddClose={() => setAdding(null)}
+                onAddSubmit={title => { quickCreate(col.id, title); setAdding(null) }}
+              />
+            ))}
+          </div>
 
-        <DragOverlay dropAnimation={{ duration: 180 }}>
-          {activeTask ? (
-            <Card task={activeTask} teamById={teamById} dragging />
-          ) : null}
-        </DragOverlay>
-      </DndContext>
+          <DragOverlay dropAnimation={{ duration: 180 }}>
+            {activeTask ? (
+              <Card task={activeTask} teamById={teamById} dragging />
+            ) : null}
+          </DragOverlay>
+        </DndContext>
+      )}
 
       {selectedTask && (
         <TaskDetailDrawer
@@ -239,9 +268,244 @@ export default function KanbanPage() {
           onDeleted={removeTaskFromList}
         />
       )}
+
+      {moveMenuTask && (
+        <MoveMenu
+          task={moveMenuTask}
+          onSelect={status => { moveTask(moveMenuTask, status); setMoveMenuTask(null) }}
+          onClose={() => setMoveMenuTask(null)}
+        />
+      )}
     </div>
   )
 }
+
+// ─── Mobile ──────────────────────────────────────────────────────────────
+
+function MobileBoard({
+  activeColumn, setActiveColumn,
+  tasksByStatus, teamById,
+  onCardClick, onLongPress,
+  isAdding, onAddOpen, onAddClose, onAddSubmit,
+}) {
+  const touchStartRef = useRef(null)
+  const column = COLUMNS.find(c => c.id === activeColumn) ?? COLUMNS[0]
+  const tasks = tasksByStatus[activeColumn] ?? []
+
+  function onTouchStart(e) {
+    const t = e.touches[0]
+    touchStartRef.current = { x: t.clientX, y: t.clientY }
+  }
+  function onTouchEnd(e) {
+    if (!touchStartRef.current) return
+    const t = e.changedTouches[0]
+    const dx = touchStartRef.current.x - t.clientX
+    const dy = touchStartRef.current.y - t.clientY
+    touchStartRef.current = null
+    if (Math.abs(dx) <= Math.abs(dy)) return        // vertical scroll, ignore
+    if (Math.abs(dx) <= 50) return                  // not enough swipe
+    const idx = COLUMNS.findIndex(c => c.id === activeColumn)
+    if (dx > 0 && idx < COLUMNS.length - 1) setActiveColumn(COLUMNS[idx + 1].id)
+    if (dx < 0 && idx > 0)                  setActiveColumn(COLUMNS[idx - 1].id)
+  }
+
+  return (
+    <>
+      {/* Tabs */}
+      <div className="flex gap-1 overflow-x-auto -mx-4 px-4 border-b border-border mb-3">
+        {COLUMNS.map(c => {
+          const isActive = c.id === activeColumn
+          const count = tasksByStatus[c.id]?.length ?? 0
+          return (
+            <button
+              key={c.id}
+              onClick={() => setActiveColumn(c.id)}
+              className={`
+                shrink-0 px-3 py-2.5 text-sm font-medium transition-colors relative
+                ${isActive ? 'text-text' : 'text-muted hover:text-text'}
+              `}
+            >
+              <span className="flex items-center gap-1.5">
+                <span className={`w-1.5 h-1.5 rounded-full ${c.accent}`} />
+                {c.label}
+                <span className="text-xs text-muted">{count}</span>
+              </span>
+              {isActive && (
+                <span className="absolute left-2 right-2 -bottom-px h-0.5 bg-primary rounded-full" />
+              )}
+            </button>
+          )
+        })}
+      </div>
+
+      {/* Active column */}
+      <div
+        onTouchStart={onTouchStart}
+        onTouchEnd={onTouchEnd}
+        className="space-y-2 min-h-[60vh] pb-4"
+      >
+        {tasks.length === 0 && !isAdding ? (
+          <div className="flex flex-col items-center justify-center py-16 text-center">
+            <p className="text-sm text-muted">В колонке «{column.label}» пусто</p>
+            <p className="text-xs text-muted mt-1">Свайп влево/вправо — другая колонка</p>
+          </div>
+        ) : (
+          tasks.map(task => (
+            <CardMobile
+              key={task.id}
+              task={task}
+              teamById={teamById}
+              onClick={() => onCardClick(task.id)}
+              onLongPress={() => onLongPress(task)}
+            />
+          ))
+        )}
+
+        {isAdding && <QuickAdd onSubmit={onAddSubmit} onCancel={onAddClose} />}
+
+        {!isAdding && (
+          <button
+            onClick={onAddOpen}
+            className="w-full text-sm text-muted hover:text-text hover:bg-hover transition-colors px-3 py-2.5 border border-dashed border-border rounded-lg flex items-center justify-center gap-1.5"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+            </svg>
+            Задача
+          </button>
+        )}
+      </div>
+    </>
+  )
+}
+
+function CardMobile({ task, teamById, onClick, onLongPress }) {
+  const timerRef = useRef(null)
+  const startRef = useRef(null)
+  const longPressedRef = useRef(false)
+
+  function handleTouchStart(e) {
+    longPressedRef.current = false
+    const t = e.touches[0]
+    startRef.current = { x: t.clientX, y: t.clientY }
+    timerRef.current = setTimeout(() => {
+      longPressedRef.current = true
+      timerRef.current = null
+      try { navigator.vibrate?.(50) } catch {}
+      onLongPress()
+    }, 450)
+  }
+  function handleTouchMove(e) {
+    if (!startRef.current || !timerRef.current) return
+    const t = e.touches[0]
+    if (Math.abs(t.clientX - startRef.current.x) > 8 ||
+        Math.abs(t.clientY - startRef.current.y) > 8) {
+      clearTimeout(timerRef.current)
+      timerRef.current = null
+    }
+  }
+  function handleTouchEnd() {
+    if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null }
+    startRef.current = null
+  }
+  function handleClick() {
+    if (longPressedRef.current) {
+      // long-press already handled — swallow the synthetic click
+      longPressedRef.current = false
+      return
+    }
+    onClick()
+  }
+
+  const today = new Date().toISOString().split('T')[0]
+  const isOverdue = task.due_date && task.due_date < today && normalizeStatus(task.status) !== 'done'
+  const assignee = teamById[task.assignee_id]
+  const previewText = descriptionPreview(task.description)
+
+  return (
+    <div
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
+      onTouchCancel={handleTouchEnd}
+      onClick={handleClick}
+      className="bg-card border border-border rounded-lg p-3 shadow-card hover:shadow-card-hover active:scale-[0.99] select-none cursor-pointer"
+    >
+      <div className="flex items-start gap-2 mb-2">
+        {task.priority && (
+          <span className={`w-1.5 h-1.5 rounded-full mt-1.5 shrink-0 ${PRIORITY_DOT[task.priority] ?? 'bg-muted'}`} />
+        )}
+        <p className="text-sm font-medium text-text break-words">{task.title}</p>
+      </div>
+
+      {previewText && (
+        <p className="text-xs text-muted line-clamp-2 mb-2">{previewText}</p>
+      )}
+
+      {task.projects && (
+        <span className="inline-flex items-center gap-1.5 text-xs text-text bg-hover px-2 py-0.5 rounded-full mb-2 max-w-full">
+          <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: task.projects.color ?? '#2D5BE3' }} />
+          <span className="truncate">{task.projects.name}</span>
+        </span>
+      )}
+
+      <div className="flex items-center justify-between gap-2">
+        {assignee ? (
+          <div
+            className="w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center text-primary text-[10px] font-bold shrink-0"
+            title={assignee.full_name || assignee.email}
+          >
+            {(assignee.full_name ?? assignee.email ?? '?')[0].toUpperCase()}
+          </div>
+        ) : <span />}
+
+        {task.due_date && (
+          <span className={`text-xs ${isOverdue ? 'text-red-500 font-medium' : 'text-muted'}`}>
+            {new Date(task.due_date + 'T00:00:00').toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })}
+          </span>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function MoveMenu({ task, onSelect, onClose }) {
+  const currentStatus = normalizeStatus(task.status)
+  const targets = COLUMNS.filter(c => c.id !== currentStatus)
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center px-0 sm:px-4 drawer-enter">
+      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative bg-card border border-border rounded-t-2xl sm:rounded-2xl shadow-2xl w-full max-w-sm p-4 sm:p-5">
+        <div className="flex items-center gap-2 mb-3">
+          <p className="text-sm font-semibold text-text truncate flex-1">{task.title}</p>
+          <button onClick={onClose} className="text-muted hover:text-text p-1 rounded-lg hover:bg-hover">
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        <p className="text-xs text-muted mb-3">Переместить в:</p>
+
+        <div className="space-y-1">
+          {targets.map(c => (
+            <button
+              key={c.id}
+              onClick={() => onSelect(c.id)}
+              className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm text-text hover:bg-hover transition-colors"
+            >
+              <span className={`w-2 h-2 rounded-full ${c.accent}`} />
+              <span>{c.label}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Desktop ─────────────────────────────────────────────────────────────
 
 function Column({ column, tasks, teamById, onCardClick, isAdding, onAddOpen, onAddClose, onAddSubmit }) {
   const { setNodeRef, isOver } = useDroppable({ id: column.id })
@@ -257,14 +521,12 @@ function Column({ column, tasks, teamById, onCardClick, isAdding, onAddOpen, onA
         ${isOver ? 'border-primary bg-primary/5' : 'border-border'}
       `}
     >
-      {/* Column header */}
       <div className="flex items-center gap-2 px-3 py-2.5 border-b border-border shrink-0">
         <span className={`w-2 h-2 rounded-full ${column.accent}`} />
         <h3 className="text-sm font-semibold text-text">{column.label}</h3>
         <span className="text-xs text-muted">{tasks.length}</span>
       </div>
 
-      {/* Cards */}
       <div className="flex-1 overflow-y-auto p-2 space-y-2">
         {tasks.length === 0 && !isAdding && (
           <p className="text-xs text-muted text-center py-6">Пусто</p>
@@ -282,7 +544,6 @@ function Column({ column, tasks, teamById, onCardClick, isAdding, onAddOpen, onA
         )}
       </div>
 
-      {/* Add button */}
       {!isAdding && (
         <button
           onClick={onAddOpen}
@@ -327,9 +588,7 @@ function Card({ task, teamById, onClick, dragging }) {
     >
       <div className="flex items-start gap-2 mb-2">
         {task.priority && (
-          <span
-            className={`w-1.5 h-1.5 rounded-full mt-1.5 shrink-0 ${PRIORITY_DOT[task.priority] ?? 'bg-muted'}`}
-          />
+          <span className={`w-1.5 h-1.5 rounded-full mt-1.5 shrink-0 ${PRIORITY_DOT[task.priority] ?? 'bg-muted'}`} />
         )}
         <p className="text-sm font-medium text-text break-words">{task.title}</p>
       </div>
@@ -339,9 +598,7 @@ function Card({ task, teamById, onClick, dragging }) {
       )}
 
       {task.projects && (
-        <span
-          className="inline-flex items-center gap-1.5 text-xs text-text bg-hover px-2 py-0.5 rounded-full mb-2 max-w-full"
-        >
+        <span className="inline-flex items-center gap-1.5 text-xs text-text bg-hover px-2 py-0.5 rounded-full mb-2 max-w-full">
           <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: task.projects.color ?? '#2D5BE3' }} />
           <span className="truncate">{task.projects.name}</span>
         </span>
