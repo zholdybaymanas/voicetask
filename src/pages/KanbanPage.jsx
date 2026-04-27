@@ -1,9 +1,13 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import {
   DndContext, DragOverlay, PointerSensor, TouchSensor,
-  useDraggable, useDroppable, useSensor, useSensors,
+  useDroppable, useSensor, useSensors,
   closestCorners,
 } from '@dnd-kit/core'
+import {
+  SortableContext, useSortable, verticalListSortingStrategy,
+} from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 import { supabase, supabaseRest, supabasePatch, getCurrentUser } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import { descriptionPreview } from '../lib/description'
@@ -84,7 +88,7 @@ export default function KanbanPage() {
           select: '*,projects(name,color)',
           filters: [
             `or=(assignee_id.eq.${user.id},created_by.eq.${user.id})`,
-            'order=created_at.desc',
+            'order=sort_order.desc.nullslast,created_at.desc',
           ],
         }),
         supabaseRest('projects', { select: 'id,name', filters: ['archived=eq.false'] }),
@@ -110,6 +114,15 @@ export default function KanbanPage() {
       const s = normalizeStatus(t.status)
       if (groups[s]) groups[s].push(t)
     }
+    // Within each column, sort by sort_order DESC (top = highest), then by created_at DESC.
+    for (const k of Object.keys(groups)) {
+      groups[k].sort((a, b) => {
+        const ao = a.sort_order ?? 0
+        const bo = b.sort_order ?? 0
+        if (ao !== bo) return bo - ao
+        return new Date(b.created_at) - new Date(a.created_at)
+      })
+    }
     return groups
   }, [tasks])
 
@@ -124,20 +137,52 @@ export default function KanbanPage() {
     setSelectedId(null)
   }
 
-  async function moveTask(task, toStatus) {
+  // Compute the sort_order to assign so the active task lands at `targetIndex`
+  // within `destTasks` (sorted top→bottom by sort_order desc), excluding active itself.
+  function pickSortOrder(destTasks, targetIndex) {
+    const list = destTasks
+    if (list.length === 0) return Date.now() / 1000
+    if (targetIndex <= 0) {
+      const top = list[0].sort_order ?? Date.now() / 1000
+      return top + 1
+    }
+    if (targetIndex >= list.length) {
+      const bottom = list[list.length - 1].sort_order ?? 0
+      return bottom - 1
+    }
+    const above = list[targetIndex - 1].sort_order ?? 0
+    const below = list[targetIndex    ].sort_order ?? 0
+    return (above + below) / 2
+  }
+
+  async function moveTask(task, toStatus, newSortOrder = null) {
     const fromStatus = normalizeStatus(task.status)
-    if (fromStatus === toStatus) return
+    const samePosition = fromStatus === toStatus && newSortOrder == null
+    if (samePosition) return
 
-    setTasks(prev => prev.map(t => t.id === task.id ? { ...t, status: toStatus } : t))
+    // Cross-column moves without an explicit position (e.g. mobile menu)
+    // drop the task at the top of the destination column.
+    if (newSortOrder == null && fromStatus !== toStatus) {
+      const destList = (tasksByStatus[toStatus] ?? []).filter(t => t.id !== task.id)
+      newSortOrder = pickSortOrder(destList, 0)
+    }
 
-    const { error } = await supabasePatch('tasks', task.id, { status: toStatus })
+    const patch = { status: toStatus }
+    if (newSortOrder != null) patch.sort_order = newSortOrder
+
+    setTasks(prev => prev.map(t => t.id === task.id ? { ...t, ...patch } : t))
+
+    const { error } = await supabasePatch('tasks', task.id, patch)
     if (error) {
       console.error('[Kanban] moveTask:', error)
-      setTasks(prev => prev.map(t => t.id === task.id ? { ...t, status: task.status } : t))
+      setTasks(prev => prev.map(t => t.id === task.id
+        ? { ...t, status: task.status, sort_order: task.sort_order } : t))
       return
     }
 
-    if (task.created_by && task.assignee_id && task.created_by !== task.assignee_id) {
+    // Cross-column moves notify the creator on review / done (only delegated tasks).
+    const crossColumn = fromStatus !== toStatus
+    if (crossColumn && task.created_by && task.assignee_id && task.created_by !== task.assignee_id) {
       const me = user?.id
       const actorIsAssignee = me === task.assignee_id
       const recipient = actorIsAssignee ? task.created_by : null
@@ -173,6 +218,7 @@ export default function KanbanPage() {
         priority:    'medium',
         assignee_id: me.id,
         created_by:  me.id,
+        sort_order:  Date.now() / 1000,
       },
     })
     if (result.error) {
@@ -227,7 +273,16 @@ export default function KanbanPage() {
             const overTask = tasks.find(t => t.id === over.id)
             const targetStatus = overTask ? normalizeStatus(overTask.status) : over.id
             if (!COLUMNS.find(c => c.id === targetStatus)) return
-            moveTask(task, targetStatus)
+
+            // Compute target index in destination column (excluding the active task)
+            const destList = (tasksByStatus[targetStatus] ?? []).filter(t => t.id !== task.id)
+            let targetIndex = destList.length // drop at end if just the column
+            if (overTask) {
+              const overIdx = destList.findIndex(t => t.id === overTask.id)
+              if (overIdx !== -1) targetIndex = overIdx
+            }
+            const newSortOrder = pickSortOrder(destList, targetIndex)
+            moveTask(task, targetStatus, newSortOrder)
           }}
           onDragCancel={() => setActiveId(null)}
         >
@@ -527,14 +582,16 @@ function Column({ column, tasks, teamById, onCardClick, isAdding, onAddOpen, onA
         {tasks.length === 0 && !isAdding && (
           <p className="text-xs text-muted text-center py-6">Пусто</p>
         )}
-        {tasks.map(task => (
-          <Card
-            key={task.id}
-            task={task}
-            teamById={teamById}
-            onClick={() => onCardClick(task.id)}
-          />
-        ))}
+        <SortableContext items={tasks.map(t => t.id)} strategy={verticalListSortingStrategy}>
+          {tasks.map(task => (
+            <Card
+              key={task.id}
+              task={task}
+              teamById={teamById}
+              onClick={() => onCardClick(task.id)}
+            />
+          ))}
+        </SortableContext>
         {isAdding && (
           <QuickAdd onSubmit={onAddSubmit} onCancel={onAddClose} />
         )}
@@ -556,10 +613,10 @@ function Column({ column, tasks, teamById, onCardClick, isAdding, onAddOpen, onA
 }
 
 function Card({ task, teamById, onClick, dragging }) {
-  const { setNodeRef, attributes, listeners, transform, isDragging } = useDraggable({
-    id: task.id,
-    data: { task },
-  })
+  const {
+    setNodeRef, attributes, listeners,
+    transform, transition, isDragging,
+  } = useSortable({ id: task.id, data: { task } })
 
   const today = new Date().toISOString().split('T')[0]
   const isOverdue = task.due_date && task.due_date < today && normalizeStatus(task.status) !== 'done'
@@ -567,7 +624,8 @@ function Card({ task, teamById, onClick, dragging }) {
   const previewText = descriptionPreview(task.description)
 
   const style = {
-    transform: transform ? `translate3d(${transform.x}px, ${transform.y}px, 0)` : undefined,
+    transform: CSS.Transform.toString(transform),
+    transition,
     opacity: isDragging ? 0.4 : 1,
   }
 

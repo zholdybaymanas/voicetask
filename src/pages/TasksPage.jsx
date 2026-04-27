@@ -376,6 +376,7 @@ function AddTaskModal({ projects, team, onClose, onCreated }) {
         priority:    form.priority,
         status:      form.status,
         created_by:  user?.id,
+        sort_order:  Date.now() / 1000,
       },
     })
     setSaving(false)

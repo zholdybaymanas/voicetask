@@ -57,6 +57,23 @@ create trigger on_auth_user_created
 
 Если оставлено включённым — после signup юзер увидит сообщение «Подтвердите email», и должен кликнуть по ссылке в письме перед первым входом.
 
+### 1.2.4. Колонка `sort_order` для перетягивания в канбане
+
+Перетягивание задач внутри колонки сохраняется в поле `sort_order` (используем именно это имя, а не `order`, потому что `order` зарезервирован в PostgREST как параметр сортировки).
+
+```sql
+alter table tasks add column if not exists sort_order double precision;
+
+-- Бэкфил для уже существующих задач: чем новее, тем выше (большее значение)
+update tasks
+set sort_order = extract(epoch from created_at)
+where sort_order is null;
+
+create index if not exists tasks_sort_order_idx on tasks (sort_order desc);
+```
+
+После этого канбан грузит задачи `order=sort_order.desc.nullslast,created_at.desc` и сохраняет новое значение через `supabasePatch` при каждом drop.
+
 ### 1.2.3. Миграция статусов задач (Kanban)
 
 Канбан использует 4 статуса: `pending`, `in_progress`, `review`, `done`.

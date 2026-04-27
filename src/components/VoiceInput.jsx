@@ -25,6 +25,16 @@ export default function VoiceInput() {
       })
   }, [])
 
+  // Allow other parts of the app (e.g. Dashboard CTA) to start the FAB.
+  useEffect(() => {
+    const handler = () => {
+      if (state === S.IDLE || state === S.ERROR) startListening()
+    }
+    window.addEventListener('voiceInputTrigger', handler)
+    return () => window.removeEventListener('voiceInputTrigger', handler)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state])
+
   function showToast(message) {
     clearTimeout(toastTimerRef.current)
     setToast({ message })
@@ -101,6 +111,7 @@ export default function VoiceInput() {
           status:      'pending',
           voice_text:  text,
           created_by:  user?.id,
+          sort_order:  Date.now() / 1000,
         },
       })
       if (result.error) throw new Error(result.error.message ?? 'Ошибка создания задачи')
