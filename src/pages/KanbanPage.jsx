@@ -44,19 +44,20 @@ export default function KanbanPage() {
   useEffect(() => {
     if (!user?.id) return
     loadAll()
-    window.addEventListener('voiceTaskCreated', loadAll)
+    const silentReload = () => loadAll({ silent: true })
+    window.addEventListener('voiceTaskCreated', silentReload)
     const ch = supabase.channel('kanban-rt')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks' }, loadAll)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks' }, silentReload)
       .subscribe()
     return () => {
-      window.removeEventListener('voiceTaskCreated', loadAll)
+      window.removeEventListener('voiceTaskCreated', silentReload)
       supabase.removeChannel(ch)
     }
   }, [user?.id])
 
-  async function loadAll() {
+  async function loadAll({ silent = false } = {}) {
     if (!user?.id) return
-    setLoading(true)
+    if (!silent) setLoading(true)
     setError(null)
     try {
       const [tasksRes, projectsRes, profilesRes] = await Promise.all([
@@ -80,7 +81,7 @@ export default function KanbanPage() {
       console.error('[Kanban] loadAll:', err)
       setError(err.message ?? 'Не удалось загрузить задачи')
     } finally {
-      setLoading(false)
+      if (!silent) setLoading(false)
     }
   }
 
@@ -202,7 +203,10 @@ export default function KanbanPage() {
         }}
         onDragCancel={() => setActiveId(null)}
       >
-        <div className="flex gap-3 overflow-x-auto pb-2">
+        <div className="
+          flex gap-3 overflow-x-auto pb-2
+          lg:grid lg:grid-cols-4 lg:overflow-visible
+        ">
           {COLUMNS.map(col => (
             <Column
               key={col.id}
@@ -244,9 +248,14 @@ function Column({ column, tasks, teamById, onCardClick, isAdding, onAddOpen, onA
   return (
     <div
       ref={setNodeRef}
-      className={`shrink-0 w-72 sm:w-80 bg-bg/40 border rounded-xl flex flex-col max-h-[calc(100vh-160px)] transition-colors ${
-        isOver ? 'border-primary bg-primary/5' : 'border-border'
-      }`}
+      className={`
+        shrink-0 w-[280px]
+        md:w-[calc(50%-6px)]
+        lg:w-auto lg:min-w-0 lg:shrink
+        bg-bg/40 border rounded-xl flex flex-col
+        max-h-[calc(100vh-160px)] transition-colors
+        ${isOver ? 'border-primary bg-primary/5' : 'border-border'}
+      `}
     >
       {/* Column header */}
       <div className="flex items-center gap-2 px-3 py-2.5 border-b border-border shrink-0">
