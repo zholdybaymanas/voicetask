@@ -38,6 +38,7 @@ export default function Dashboard() {
   const notifTimer = useRef(null)
 
   useEffect(() => {
+    if (!user?.id) return
     loadAll()
     window.addEventListener('voiceTaskCreated', loadAll)
     const ch = supabase.channel('dashboard-rt')
@@ -47,9 +48,9 @@ export default function Dashboard() {
       window.removeEventListener('voiceTaskCreated', loadAll)
       supabase.removeChannel(ch)
     }
-  }, [])
+  }, [user?.id])
 
-  // Notifications realtime toast — fires on every new row addressed to current user
+  // Notifications realtime toast
   useEffect(() => {
     if (!user) return
     const channel = supabase
@@ -84,13 +85,19 @@ export default function Dashboard() {
   }
 
   async function loadAll() {
+    if (!user?.id) return
     setLoading(true)
     setError(null)
     try {
       const [tasksRes, projectsRes, profilesRes] = await Promise.all([
         supabaseRest('tasks', {
           select: '*,projects(name,color)',
-          filters: ['status=neq.cancelled', 'order=created_at.desc'],
+          // Only tasks where I'm assignee or creator (RLS may also enforce this).
+          filters: [
+            'status=neq.cancelled',
+            `or=(assignee_id.eq.${user.id},created_by.eq.${user.id})`,
+            'order=created_at.desc',
+          ],
         }),
         supabaseRest('projects', { select: 'id,name', filters: ['archived=eq.false'] }),
         supabaseRest('profiles', { select: 'id,full_name,email' }),
@@ -131,7 +138,8 @@ export default function Dashboard() {
   const today        = todayStr()
   const displayName  = profile?.full_name || ''
   const todayTasks   = tasks.filter(t => t.due_date === today && t.status !== 'done')
-  const recentTasks  = tasks.slice(0, 7)
+  const inboxTasks   = tasks.filter(t => t.assignee_id === user?.id).slice(0, 7)
+  const myTasks      = tasks.filter(t => t.created_by === user?.id).slice(0, 7)
   const selectedTask = tasks.find(t => t.id === selectedId) ?? null
 
   const stats = [
@@ -192,6 +200,8 @@ export default function Dashboard() {
                 key={t.id}
                 task={t}
                 today={today}
+                team={team}
+                userId={user?.id}
                 onOpen={() => setSelectedId(t.id)}
                 onToggle={() => quickToggleDone(t)}
               />
@@ -200,36 +210,31 @@ export default function Dashboard() {
         </section>
       )}
 
-      <section>
-        <div className="flex items-center justify-between mb-2">
-          <h3 className="text-sm font-semibold text-text">Последние задачи</h3>
-          <Link to="/tasks" className="text-xs text-primary hover:underline font-medium">Все →</Link>
-        </div>
-        <div className="bg-card rounded-xl border border-border shadow-card divide-y divide-border">
-          {recentTasks.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-14 text-center">
-              <div className="w-11 h-11 bg-primary/10 rounded-full flex items-center justify-center mb-3">
-                <svg className="w-5 h-5 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                  <path strokeLinecap="round" strokeLinejoin="round"
-                    d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 01-3-3V4.5a3 3 0 116 0v8.25a3 3 0 01-3 3z" />
-                </svg>
-              </div>
-              <p className="text-sm font-medium text-text">Задач пока нет</p>
-              <p className="text-xs text-muted mt-1">Создайте первую задачу голосом!</p>
-            </div>
-          ) : (
-            recentTasks.map(t => (
-              <TaskRow
-                key={t.id}
-                task={t}
-                today={today}
-                onOpen={() => setSelectedId(t.id)}
-                onToggle={() => quickToggleDone(t)}
-              />
-            ))
-          )}
-        </div>
-      </section>
+      <SectionList
+        title="Входящие"
+        subtitle="назначены мне"
+        tasks={inboxTasks}
+        emptyText="Нет входящих задач"
+        linkTo="/tasks"
+        today={today}
+        team={team}
+        userId={user?.id}
+        onOpen={(id) => setSelectedId(id)}
+        onToggle={quickToggleDone}
+      />
+
+      <SectionList
+        title="Мои задачи"
+        subtitle="созданные мной"
+        tasks={myTasks}
+        emptyText="Вы пока не создавали задач"
+        linkTo="/tasks"
+        today={today}
+        team={team}
+        userId={user?.id}
+        onOpen={(id) => setSelectedId(id)}
+        onToggle={quickToggleDone}
+      />
 
       {selectedTask && (
         <TaskDetailDrawer
@@ -242,7 +247,6 @@ export default function Dashboard() {
         />
       )}
 
-      {/* Realtime notification toast (top-right). Click to mark read + navigate. */}
       {notifToast && (
         <div className="fixed top-20 right-4 sm:right-7 z-50 drawer-enter">
           <div
@@ -276,10 +280,70 @@ export default function Dashboard() {
   )
 }
 
-function TaskRow({ task, today, onOpen, onToggle }) {
+function SectionList({ title, subtitle, tasks, emptyText, linkTo, today, team, userId, onOpen, onToggle }) {
+  return (
+    <section>
+      <div className="flex items-baseline justify-between mb-2 gap-2">
+        <h3 className="text-sm font-semibold text-text flex items-baseline gap-2">
+          {title}
+          <span className="text-xs text-muted font-normal">{subtitle}</span>
+        </h3>
+        {linkTo && tasks.length > 0 && (
+          <Link to={linkTo} className="text-xs text-primary hover:underline font-medium shrink-0">Все →</Link>
+        )}
+      </div>
+      <div className="bg-card rounded-xl border border-border shadow-card divide-y divide-border">
+        {tasks.length === 0 ? (
+          <div className="flex items-center justify-center py-8 px-4">
+            <p className="text-sm text-muted">{emptyText}</p>
+          </div>
+        ) : (
+          tasks.map(t => (
+            <TaskRow
+              key={t.id}
+              task={t}
+              today={today}
+              team={team}
+              userId={userId}
+              onOpen={() => onOpen(t.id)}
+              onToggle={() => onToggle(t)}
+            />
+          ))
+        )}
+      </div>
+    </section>
+  )
+}
+
+function TaskRow({ task, today, team, userId, onOpen, onToggle }) {
   const isOverdue = task.due_date && task.due_date < today && task.status !== 'done'
   const isDone    = task.status === 'done'
   const previewText = descriptionPreview(task.description)
+
+  // Show creator if this task is assigned to me by someone else
+  let creatorBadge = null
+  if (task.assignee_id === userId && task.created_by && task.created_by !== userId) {
+    const creator = team.find(u => u.id === task.created_by)
+    if (creator) {
+      const name = creator.full_name || creator.email
+      creatorBadge = (
+        <span className="hidden sm:flex items-center gap-1 text-xs text-muted">
+          от <span className="text-text">{name}</span>
+        </span>
+      )
+    }
+  } else if (task.created_by === userId && task.assignee_id && task.assignee_id !== userId) {
+    // Show recipient if I sent it
+    const recipient = team.find(u => u.id === task.assignee_id)
+    if (recipient) {
+      const name = recipient.full_name || recipient.email
+      creatorBadge = (
+        <span className="hidden sm:flex items-center gap-1 text-xs text-muted">
+          → <span className="text-text">{name}</span>
+        </span>
+      )
+    }
+  }
 
   return (
     <div
@@ -299,8 +363,9 @@ function TaskRow({ task, today, onOpen, onToggle }) {
         )}
       </div>
       <div className="flex items-center gap-3 shrink-0 ml-2">
+        {creatorBadge}
         {task.projects && (
-          <span className="hidden sm:flex items-center gap-1 text-xs text-muted bg-hover px-2 py-0.5 rounded-full">
+          <span className="hidden md:flex items-center gap-1 text-xs text-muted bg-hover px-2 py-0.5 rounded-full">
             <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: task.projects.color ?? '#2D5BE3' }} />
             {task.projects.name}
           </span>

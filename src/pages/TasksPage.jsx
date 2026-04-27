@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { supabase, supabaseRest, supabasePatch, getCurrentUser } from '../lib/supabase'
-import { descriptionPreview, parseDescription } from '../lib/description'
+import { useAuth } from '../hooks/useAuth'
+import { descriptionPreview } from '../lib/description'
 import TaskDetailDrawer from '../components/TaskDetailDrawer'
 import TaskCheck from '../components/TaskCheck'
 
@@ -20,7 +21,17 @@ const STATUS_BADGE = {
 const PRIORITY_DOT  = { high: 'bg-red-500', medium: 'bg-amber-400', low: 'bg-muted' }
 const PRIORITY_LABEL = { low: 'Низкий', medium: 'Средний', high: 'Высокий' }
 
+const TAB_EMPTY = {
+  inbox: { title: 'Нет входящих задач',   sub: 'Когда вам назначат задачу — она появится здесь.' },
+  sent:  { title: 'Нет отправленных',      sub: 'Здесь появятся задачи, которые вы делегировали другим.' },
+  all:   { title: 'Задач нет',             sub: 'Создайте первую задачу.' },
+}
+
 export default function TasksPage() {
+  const { user, profile } = useAuth()
+  const isAdmin = profile?.role === 'admin'
+
+  const [tab, setTab] = useState('inbox') // 'inbox' | 'sent' | 'all'
   const [tasks, setTasks]               = useState([])
   const [projects, setProjects]         = useState([])
   const [team, setTeam]                 = useState([])
@@ -32,21 +43,38 @@ export default function TasksPage() {
   const [addOpen, setAddOpen]           = useState(false)
   const [selectedId, setSelectedId]     = useState(null)
 
+  // Reset tab if user lost admin and was on 'all'
   useEffect(() => {
+    if (tab === 'all' && !isAdmin) setTab('inbox')
+  }, [isAdmin, tab])
+
+  useEffect(() => {
+    if (!user?.id) return
     loadAll()
     window.addEventListener('voiceTaskCreated', loadAll)
     const ch = supabase.channel('tasks-rt')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks' }, loadAll)
       .subscribe()
     return () => { window.removeEventListener('voiceTaskCreated', loadAll); supabase.removeChannel(ch) }
-  }, [])
+  }, [user?.id, tab])
 
   async function loadAll() {
+    if (!user?.id) return
     setLoading(true)
     setError(null)
     try {
+      // Build per-tab filter
+      const taskFilters = ['order=created_at.desc']
+      if (tab === 'inbox') {
+        taskFilters.push(`assignee_id=eq.${user.id}`)
+      } else if (tab === 'sent') {
+        taskFilters.push(`created_by=eq.${user.id}`)
+        taskFilters.push(`assignee_id=neq.${user.id}`)
+      }
+      // 'all' — no extra filter; RLS allows admins to see everything
+
       const [tasksRes, projectsRes, profilesRes] = await Promise.all([
-        supabaseRest('tasks', { select: '*,projects(name,color)', filters: ['order=created_at.desc'] }),
+        supabaseRest('tasks', { select: '*,projects(name,color)', filters: taskFilters }),
         supabaseRest('projects', { select: 'id,name', filters: ['archived=eq.false'] }),
         supabaseRest('profiles', { select: 'id,full_name,email' }),
       ])
@@ -84,7 +112,6 @@ export default function TasksPage() {
   }
 
   function applyTaskUpdate(updated) {
-    // Merge the patched task into the list, keeping the joined `projects` field
     setTasks(prev => prev.map(t => t.id === updated.id ? { ...t, ...updated, projects: t.projects } : t))
   }
 
@@ -104,8 +131,33 @@ export default function TasksPage() {
   const assigneeById = Object.fromEntries(team.map(u => [u.id, u]))
   const selectedTask = tasks.find(t => t.id === selectedId) ?? null
 
+  const tabs = [
+    { id: 'inbox', label: 'Входящие' },
+    { id: 'sent',  label: 'Отправленные' },
+    ...(isAdmin ? [{ id: 'all', label: 'Все' }] : []),
+  ]
+
   return (
     <div className="space-y-4">
+      {/* Tabs */}
+      <div className="flex bg-hover rounded-lg p-1 w-fit">
+        {tabs.map(t => (
+          <button
+            key={t.id}
+            type="button"
+            onClick={() => setTab(t.id)}
+            className={`text-sm font-medium py-1.5 px-4 rounded-md transition-colors ${
+              tab === t.id
+                ? 'bg-card text-text shadow-card'
+                : 'text-muted hover:text-text'
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Filter bar */}
       <div className="flex flex-wrap items-center gap-2">
         <select className="input w-auto text-sm" value={filterProject} onChange={e => setFilterProject(e.target.value)}>
           <option value="">Все проекты</option>
@@ -114,10 +166,12 @@ export default function TasksPage() {
         <select className="input w-auto text-sm" value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
           {STATUS_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
         </select>
-        <select className="input w-auto text-sm hidden sm:block" value={filterAssignee} onChange={e => setFilterAssignee(e.target.value)}>
-          <option value="">Все исполнители</option>
-          {team.map(u => <option key={u.id} value={u.id}>{u.full_name || u.email}</option>)}
-        </select>
+        {tab !== 'inbox' && (
+          <select className="input w-auto text-sm hidden sm:block" value={filterAssignee} onChange={e => setFilterAssignee(e.target.value)}>
+            <option value="">Все исполнители</option>
+            {team.map(u => <option key={u.id} value={u.id}>{u.full_name || u.email}</option>)}
+          </select>
+        )}
         {(filterProject || filterStatus || filterAssignee) && (
           <button className="btn-secondary text-xs px-3 py-1.5" onClick={() => { setFilterProject(''); setFilterStatus(''); setFilterAssignee('') }}>
             Сбросить
@@ -136,7 +190,7 @@ export default function TasksPage() {
       <div className="bg-card rounded-xl border border-border shadow-card overflow-hidden">
         <div className="hidden md:grid grid-cols-[24px_1fr_160px_140px_110px_130px] gap-4 px-4 py-2.5 border-b border-border bg-hover">
           <span />
-          {['Задача', 'Проект', 'Исполнитель', 'Дедлайн', 'Статус'].map(h => (
+          {['Задача', 'Проект', tab === 'inbox' ? 'От кого' : 'Исполнитель', 'Дедлайн', 'Статус'].map(h => (
             <span key={h} className="text-[11px] font-semibold text-muted uppercase tracking-wide">{h}</span>
           ))}
         </div>
@@ -152,15 +206,18 @@ export default function TasksPage() {
           </div>
         ) : filtered.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 text-center">
-            <p className="text-sm font-medium text-text">Задач не найдено</p>
-            <p className="text-xs text-muted mt-1">Попробуйте изменить фильтры</p>
+            <p className="text-sm font-medium text-text">{TAB_EMPTY[tab].title}</p>
+            <p className="text-xs text-muted mt-1">{TAB_EMPTY[tab].sub}</p>
           </div>
         ) : (
           <div className="divide-y divide-border">
             {filtered.map(task => {
               const isOverdue = task.due_date && task.due_date < today && task.status !== 'done' && task.status !== 'cancelled'
               const assignee  = task.profiles ?? assigneeById[task.assignee_id]
+              const creator   = assigneeById[task.created_by]
               const isDone    = task.status === 'done'
+              // In Inbox tab, show creator instead of assignee (assignee is always me).
+              const personUser = tab === 'inbox' ? creator : assignee
               return (
                 <div
                   key={task.id}
@@ -171,7 +228,7 @@ export default function TasksPage() {
                     <TaskCheck done={isDone} isOverdue={isOverdue} onToggle={() => quickToggleDone(task)} />
                     <TaskTitle task={task} isDone={isDone} />
                     <ProjectBadge project={task.projects} />
-                    <AssigneeBadge user={assignee} />
+                    <PersonBadge user={personUser} />
                     <DueDate date={task.due_date} isOverdue={isOverdue} />
                     <StatusSelect value={task.status} onChange={s => updateStatus(task.id, s)} />
                   </div>
@@ -188,7 +245,7 @@ export default function TasksPage() {
                     </div>
                     <div className="flex items-center gap-2 flex-wrap text-xs pl-7">
                       {task.projects && <ProjectBadge project={task.projects} />}
-                      {assignee && <AssigneeBadge user={assignee} />}
+                      {personUser && <PersonBadge user={personUser} prefix={tab === 'inbox' ? 'от' : '→'} />}
                       {task.due_date && <DueDate date={task.due_date} isOverdue={isOverdue} />}
                     </div>
                   </div>
@@ -249,10 +306,11 @@ function ProjectBadge({ project }) {
   )
 }
 
-function AssigneeBadge({ user }) {
+function PersonBadge({ user, prefix }) {
   if (!user) return <span className="text-muted text-sm">—</span>
   return (
     <div className="flex items-center gap-1.5">
+      {prefix && <span className="text-muted text-xs">{prefix}</span>}
       <div className="w-5 h-5 rounded-full bg-primary/10 flex items-center justify-center text-primary text-[10px] font-bold shrink-0">
         {(user.full_name ?? user.email ?? '?')[0].toUpperCase()}
       </div>
@@ -297,13 +355,15 @@ function AddTaskModal({ projects, team, onClose, onCreated }) {
     if (!form.title.trim()) return setErr('Введите название задачи')
     setSaving(true)
     const user = getCurrentUser()
+    // If no assignee picked, default to self (so the task lands somewhere visible).
+    const finalAssignee = form.assignee_id || user?.id || null
     const result = await supabaseRest('tasks', {
       method: 'POST',
       body: {
         title:       form.title.trim(),
         description: form.description.trim() || null,
         project_id:  form.project_id  || null,
-        assignee_id: form.assignee_id || null,
+        assignee_id: finalAssignee,
         due_date:    form.due_date    || null,
         priority:    form.priority,
         status:      form.status,
@@ -315,6 +375,22 @@ function AddTaskModal({ projects, team, onClose, onCreated }) {
       console.error('[TasksPage] create error:', result.error)
       return setErr(result.error.message ?? 'Ошибка создания задачи')
     }
+
+    // Notify the assignee if it's not self.
+    const created = Array.isArray(result.data) ? result.data[0] : result.data
+    if (finalAssignee && finalAssignee !== user?.id && created?.id) {
+      const notifRes = await supabaseRest('notifications', {
+        method: 'POST',
+        body: {
+          user_id: finalAssignee,
+          task_id: created.id,
+          type:    'new_task',
+          title:   `Вам назначена новая задача: ${form.title.trim()}`,
+        },
+      })
+      if (notifRes.error) console.warn('[TasksPage] notification insert failed:', notifRes.error)
+    }
+
     onCreated()
     onClose()
   }
@@ -349,7 +425,7 @@ function AddTaskModal({ projects, team, onClose, onCreated }) {
             <div>
               <label className="block text-xs font-medium text-text mb-1">Исполнитель</label>
               <select className="input" value={form.assignee_id} onChange={e => setForm(f => ({ ...f, assignee_id: e.target.value }))}>
-                <option value="">— не назначен —</option>
+                <option value="">Я (по умолчанию)</option>
                 {team.map(u => <option key={u.id} value={u.id}>{u.full_name || u.email}</option>)}
               </select>
             </div>

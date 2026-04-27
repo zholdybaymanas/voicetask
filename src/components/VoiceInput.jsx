@@ -83,13 +83,19 @@ export default function VoiceInput() {
       const title = parsed.title?.trim() || text
 
       const user = getCurrentUser()
+      // Default assignee to the creator when Claude didn't pick anyone — that
+      // way every voice-created task lands somewhere visible (Inbox of the
+      // creator). Explicit assignee from the parser overrides this.
+      const finalAssignee = parsed.assignee_id || user?.id || null
+      const isDelegated   = finalAssignee && finalAssignee !== user?.id
+
       const result = await supabaseRest('tasks', {
         method: 'POST',
         body: {
           title,
           description: parsed.description  || null,
           project_id:  parsed.project_id   || null,
-          assignee_id: parsed.assignee_id  || null,
+          assignee_id: finalAssignee,
           due_date:    parsed.due_date     || null,
           priority:    parsed.priority     ?? 'medium',
           status:      'todo',
@@ -99,14 +105,14 @@ export default function VoiceInput() {
       })
       if (result.error) throw new Error(result.error.message ?? 'Ошибка создания задачи')
 
-      // Notify the assignee (skip self-assignment). Failures here are
-      // non-fatal — the task itself was created successfully.
       const createdTask = Array.isArray(result.data) ? result.data[0] : result.data
-      if (parsed.assignee_id && parsed.assignee_id !== user?.id) {
+
+      // Notify the assignee when delegating to someone else. Non-fatal.
+      if (isDelegated) {
         const notifRes = await supabaseRest('notifications', {
           method: 'POST',
           body: {
-            user_id: parsed.assignee_id,
+            user_id: finalAssignee,
             task_id: createdTask?.id,
             type:    'new_task',
             title:   `Вам назначена новая задача: ${title}`,
@@ -116,7 +122,15 @@ export default function VoiceInput() {
       }
 
       window.dispatchEvent(new CustomEvent('voiceTaskCreated'))
-      showToast(`✓ Задача создана: ${title}`)
+
+      // Toast wording depends on whether the task was delegated.
+      if (isDelegated) {
+        const recipient = team.find(u => u.id === finalAssignee)
+        const name = recipient?.full_name || recipient?.email || 'исполнителю'
+        showToast(`✓ Задача отправлена ${name}`)
+      } else {
+        showToast(`✓ Задача создана: ${title}`)
+      }
       setState(S.IDLE)
     } catch (err) {
       console.error('[VoiceInput] processAndCreate error:', err)

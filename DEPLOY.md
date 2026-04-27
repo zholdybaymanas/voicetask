@@ -70,10 +70,18 @@ create policy "projects_select_all"  on projects for select using (auth.role() =
 create policy "projects_insert_own"  on projects for insert with check (owner_id = auth.uid());
 create policy "projects_update_own"  on projects for update using (owner_id = auth.uid());
 
--- tasks: видят все авторизованные, создаёт любой авторизованный, редактирует создатель/исполнитель
-create policy "tasks_select_all"   on tasks for select using (auth.role() = 'authenticated');
+-- tasks: каждый видит только свои (где он assignee или creator); admin видит всё
+drop policy if exists "tasks_select_all" on tasks;
+drop policy if exists "tasks_select_own" on tasks;
+drop policy if exists "tasks_select_admin" on tasks;
+create policy "tasks_select_own"   on tasks for select to authenticated
+  using (assignee_id = auth.uid() or created_by = auth.uid());
+create policy "tasks_select_admin" on tasks for select to authenticated
+  using (exists (select 1 from profiles where id = auth.uid() and role = 'admin'));
+
 create policy "tasks_insert_auth"  on tasks for insert with check (auth.role() = 'authenticated');
 create policy "tasks_update_owner" on tasks for update using (created_by = auth.uid() or assignee_id = auth.uid());
+create policy "tasks_delete_owner" on tasks for delete using (created_by = auth.uid());
 
 -- notifications: читать/обновлять только свои; INSERT — любой авторизованный
 -- (нужно чтобы при создании задачи можно было создать уведомление другому пользователю)
