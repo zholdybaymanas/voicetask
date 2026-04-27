@@ -119,6 +119,40 @@ export default function VoiceInput() {
           },
         })
         if (notifRes.error) console.warn('[VoiceInput] notification insert failed:', notifRes.error)
+
+        // Email notification via Resend. Best-effort — don't block on failure.
+        const recipient = team.find(u => u.id === finalAssignee)
+        if (recipient?.email) {
+          const myProfile = team.find(u => u.id === user?.id)
+          const creatorName =
+            myProfile?.full_name ||
+            myProfile?.email ||
+            user?.user_metadata?.full_name ||
+            user?.email ||
+            'Коллега'
+          const project = projects.find(p => p.id === parsed.project_id)
+          const deadline = parsed.due_date
+            ? new Date(parsed.due_date + 'T00:00:00').toLocaleDateString('ru-RU', {
+                day: 'numeric', month: 'long',
+              })
+            : null
+
+          fetch('/api/notify-email', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              to:           recipient.email,
+              assigneeName: recipient.full_name || recipient.email,
+              taskTitle:    title,
+              creatorName,
+              projectName:  project?.name || null,
+              deadline,
+            }),
+          })
+            .then(r => r.json().catch(() => ({})))
+            .then(d => { if (d?.error) console.warn('[VoiceInput] email failed:', d.error) })
+            .catch(err => console.warn('[VoiceInput] email request failed:', err))
+        }
       }
 
       window.dispatchEvent(new CustomEvent('voiceTaskCreated'))
