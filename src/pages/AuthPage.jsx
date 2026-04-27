@@ -53,12 +53,24 @@ export default function AuthPage() {
       return setFormError(msg)
     }
 
-    // Sign-up success without an immediate session means email confirmation is required
+    // Signup branch:
+    //  - If signUp returned a session, ProtectedRoute already redirects to /.
+    //  - Otherwise (email confirmation may or may not be required) try to sign in
+    //    automatically. If it succeeds, ProtectedRoute redirects. If it fails
+    //    (typically with "Email not confirmed"), switch to the login tab with
+    //    the email pre-filled so the user has a clear next step.
     if (mode === 'signup' && data?.user && !data?.session) {
-      setInfo(`Регистрация успешна. Подтвердите email (${email}) — мы отправили письмо со ссылкой.`)
-      setPassword('')
+      setLoading(true)
+      const { error: signInErr } = await signIn(email.trim(), password)
+      setLoading(false)
+      if (signInErr) {
+        setMode('signin')
+        setPassword('')
+        setFormError('')
+        setInfo('Регистрация успешна. Подтвердите email и войдите.')
+      }
+      // signIn success → onAuthStateChange fires → ProtectedRoute navigates away
     }
-    // If signUp returned a session, App.jsx ProtectedRoute will navigate automatically
   }
 
   const displayError = formError || error
