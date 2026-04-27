@@ -1,0 +1,24 @@
+<svg width="144" height="144" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <!-- Фон -->
+  <rect width="512" height="512" rx="23" fill="#2D5BE3"/>
+  
+  <!-- Микрофон — тело -->
+  <rect x="196" y="80" width="120" height="200" rx="60" fill="white"/>
+  
+  <!-- Микрофон — дуга подставки -->
+  <path d="M140 280 Q140 380 256 380 Q372 380 372 280" 
+    fill="none" stroke="white" stroke-width="28" stroke-linecap="round"/>
+  
+  <!-- Микрофон — ножка -->
+  <line x1="256" y1="380" x2="256" y2="430" stroke="white" stroke-width="28" stroke-linecap="round"/>
+  
+  <!-- Микрофон — подставка -->
+  <line x1="180" y1="430" x2="332" y2="430" stroke="white" stroke-width="28" stroke-linecap="round"/>
+  
+  <!-- Галочка — зелёный круг -->
+  <circle cx="372" cy="360" r="80" fill="#10B981"/>
+  
+  <!-- Галочка — символ -->
+  <path d="M338 360 L358 380 L408 330" 
+    fill="none" stroke="white" stroke-width="22" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

@@ -138,9 +138,6 @@ Vercel автоматически определит Vite. `vercel.json` уже 
 | `VITE_SUPABASE_ANON_KEY`     | `eyJ...`                 | frontend (build time)     |
 | `SUPABASE_SERVICE_ROLE_KEY`  | `eyJ...`                 | `api/admin.js` (server)   |
 | `ANTHROPIC_API_KEY`          | `sk-ant-...`             | `api/tasks.js` (голос)    |
-| `RESEND_API_KEY`             | `re_...`                 | `api/notify-email.js`     |
-| `RESEND_FROM_EMAIL` *(опц.)* | `VoiceTask <noreply@…>`  | `api/notify-email.js`     |
-| `APP_URL` *(опц.)*           | `https://…vercel.app`    | `api/notify-email.js`     |
 
 > ⚠️ `VITE_*` переменные попадают в bundle и видны в браузере. Используй только публичный `anon` ключ.
 > `SUPABASE_SERVICE_ROLE_KEY` без префикса `VITE_` — он остаётся на сервере.
@@ -193,8 +190,3 @@ Vite проксирует `/api/*` → `http://localhost:3001` (см. `vite.conf
 **`Invalid login credentials`** — пользователя не существует или неподтверждён email. Создай через Supabase Dashboard с `email_confirm: true`.
 
 **Голосовой ввод не работает** — Speech Recognition API требует HTTPS (на localhost работает в исключение). Поддерживается только в Chrome/Edge.
-
-**Email при назначении задачи не приходит** —
-1. Проверь что `RESEND_API_KEY` настроен в Vercel Environment Variables и сделан Redeploy.
-2. На бесплатном Resend-плане без верифицированного домена письма уходят только на email, привязанный к твоему Resend-аккаунту. Чтобы рассылать команде — верифицируй домен на [resend.com/domains](https://resend.com/domains) и задай `RESEND_FROM_EMAIL=VoiceTask <noreply@yourdomain.com>`.
-3. Логи отправки — в Resend Dashboard → Logs.
