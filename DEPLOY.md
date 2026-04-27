@@ -33,9 +33,11 @@ create policy "tasks_select_all"   on tasks for select using (auth.role() = 'aut
 create policy "tasks_insert_auth"  on tasks for insert with check (auth.role() = 'authenticated');
 create policy "tasks_update_owner" on tasks for update using (created_by = auth.uid() or assignee_id = auth.uid());
 
--- notifications: только свои
-create policy "notif_select_own" on notifications for select using (user_id = auth.uid());
-create policy "notif_update_own" on notifications for update using (user_id = auth.uid());
+-- notifications: читать/обновлять только свои; INSERT — любой авторизованный
+-- (нужно чтобы при создании задачи можно было создать уведомление другому пользователю)
+create policy "notif_select_own"   on notifications for select using (user_id = auth.uid());
+create policy "notif_update_own"   on notifications for update using (user_id = auth.uid());
+create policy "notif_insert_authed" on notifications for insert with check (auth.role() = 'authenticated');
 ```
 
 ## 2. Деплой на Vercel

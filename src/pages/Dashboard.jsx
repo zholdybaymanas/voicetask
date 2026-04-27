@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react'
-import { Link } from 'react-router-dom'
+import { useState, useEffect, useRef } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
 import { supabase, supabaseRest, supabasePatch } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import { descriptionPreview } from '../lib/description'
@@ -7,6 +7,15 @@ import TaskDetailDrawer from '../components/TaskDetailDrawer'
 import TaskCheck from '../components/TaskCheck'
 
 const PRIORITY_DOT = { high: 'bg-red-500', medium: 'bg-amber-400', low: 'bg-muted' }
+
+const NOTIF_DOT = {
+  new_task:     'bg-primary',
+  task_done:    'bg-emerald-500',
+  task_overdue: 'bg-red-500',
+  mention:      'bg-amber-500',
+  reminder:     'bg-violet-500',
+  info:         'bg-muted',
+}
 
 function getGreeting(name) {
   const h = new Date().getHours()
@@ -17,13 +26,16 @@ function getGreeting(name) {
 function todayStr() { return new Date().toISOString().split('T')[0] }
 
 export default function Dashboard() {
-  const { profile }         = useAuth()
+  const { user, profile }   = useAuth()
+  const navigate            = useNavigate()
   const [tasks, setTasks]   = useState([])
   const [projects, setProjects] = useState([])
   const [team, setTeam]     = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError]   = useState(null)
   const [selectedId, setSelectedId] = useState(null)
+  const [notifToast, setNotifToast] = useState(null)
+  const notifTimer = useRef(null)
 
   useEffect(() => {
     loadAll()
@@ -36,6 +48,40 @@ export default function Dashboard() {
       supabase.removeChannel(ch)
     }
   }, [])
+
+  // Notifications realtime toast — fires on every new row addressed to current user
+  useEffect(() => {
+    if (!user) return
+    const channel = supabase
+      .channel(`dashboard-notifications-${user.id}`)
+      .on('postgres_changes', {
+        event:  'INSERT',
+        schema: 'public',
+        table:  'notifications',
+        filter: `user_id=eq.${user.id}`,
+      }, payload => showNotifToast(payload.new))
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+      clearTimeout(notifTimer.current)
+    }
+  }, [user])
+
+  function showNotifToast(notification) {
+    clearTimeout(notifTimer.current)
+    setNotifToast(notification)
+    notifTimer.current = setTimeout(() => setNotifToast(null), 4500)
+  }
+
+  async function dismissNotifToast(markRead = false) {
+    const n = notifToast
+    setNotifToast(null)
+    clearTimeout(notifTimer.current)
+    if (markRead && n && !n.read) {
+      await supabasePatch('notifications', n.id, { read: true })
+    }
+  }
 
   async function loadAll() {
     setLoading(true)
@@ -82,10 +128,10 @@ export default function Dashboard() {
     setSelectedId(null)
   }
 
-  const today       = todayStr()
-  const displayName = profile?.full_name || ''
-  const todayTasks  = tasks.filter(t => t.due_date === today && t.status !== 'done')
-  const recentTasks = tasks.slice(0, 7)
+  const today        = todayStr()
+  const displayName  = profile?.full_name || ''
+  const todayTasks   = tasks.filter(t => t.due_date === today && t.status !== 'done')
+  const recentTasks  = tasks.slice(0, 7)
   const selectedTask = tasks.find(t => t.id === selectedId) ?? null
 
   const stats = [
@@ -194,6 +240,37 @@ export default function Dashboard() {
           onUpdated={applyTaskUpdate}
           onDeleted={removeTaskFromList}
         />
+      )}
+
+      {/* Realtime notification toast (top-right). Click to mark read + navigate. */}
+      {notifToast && (
+        <div className="fixed top-20 right-4 sm:right-7 z-50 drawer-enter">
+          <div
+            onClick={() => { dismissNotifToast(true); navigate('/notifications') }}
+            className="bg-card border border-border shadow-card-hover rounded-xl px-4 py-3 max-w-sm cursor-pointer hover:shadow-glow transition-shadow"
+          >
+            <div className="flex items-start gap-3">
+              <div className={`w-2 h-2 rounded-full mt-1.5 shrink-0 ${NOTIF_DOT[notifToast.type] ?? NOTIF_DOT.info}`} />
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium text-text truncate">
+                  {notifToast.title || notifToast.message || 'Новое уведомление'}
+                </p>
+                {notifToast.body && (
+                  <p className="text-xs text-muted mt-0.5 line-clamp-2">{notifToast.body}</p>
+                )}
+              </div>
+              <button
+                onClick={e => { e.stopPropagation(); dismissNotifToast(false) }}
+                className="text-muted hover:text-text shrink-0"
+                aria-label="Закрыть"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )

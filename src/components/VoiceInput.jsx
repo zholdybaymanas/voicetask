@@ -99,6 +99,22 @@ export default function VoiceInput() {
       })
       if (result.error) throw new Error(result.error.message ?? 'Ошибка создания задачи')
 
+      // Notify the assignee (skip self-assignment). Failures here are
+      // non-fatal — the task itself was created successfully.
+      const createdTask = Array.isArray(result.data) ? result.data[0] : result.data
+      if (parsed.assignee_id && parsed.assignee_id !== user?.id) {
+        const notifRes = await supabaseRest('notifications', {
+          method: 'POST',
+          body: {
+            user_id: parsed.assignee_id,
+            task_id: createdTask?.id,
+            type:    'new_task',
+            title:   `Вам назначена новая задача: ${title}`,
+          },
+        })
+        if (notifRes.error) console.warn('[VoiceInput] notification insert failed:', notifRes.error)
+      }
+
       window.dispatchEvent(new CustomEvent('voiceTaskCreated'))
       showToast(`✓ Задача создана: ${title}`)
       setState(S.IDLE)
