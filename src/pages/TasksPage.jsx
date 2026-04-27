@@ -7,16 +7,23 @@ import TaskCheck from '../components/TaskCheck'
 
 const STATUS_OPTIONS = [
   { value: '',            label: 'Все статусы' },
-  { value: 'todo',        label: 'К выполнению' },
+  { value: 'pending',     label: 'Входящие' },
   { value: 'in_progress', label: 'В работе' },
+  { value: 'review',      label: 'На проверке' },
   { value: 'done',        label: 'Готово' },
-  { value: 'cancelled',   label: 'Отменено' },
 ]
 const STATUS_BADGE = {
-  todo:        'bg-hover text-muted',
+  pending:     'bg-hover text-muted',
   in_progress: 'bg-primary/15 text-primary font-semibold',
+  review:      'bg-violet-500/15 text-violet-500 font-semibold',
   done:        'bg-emerald-500/15 text-emerald-500',
-  cancelled:   'bg-hover text-muted',
+}
+
+// Treat legacy status values as their new equivalents.
+function normStatus(s) {
+  if (s === 'todo') return 'pending'
+  if (s === 'cancelled') return 'done'
+  return s ?? 'pending'
 }
 const PRIORITY_DOT  = { high: 'bg-red-500', medium: 'bg-amber-400', low: 'bg-muted' }
 const PRIORITY_LABEL = { low: 'Низкий', medium: 'Средний', high: 'Высокий' }
@@ -93,7 +100,7 @@ export default function TasksPage() {
   }
 
   async function quickToggleDone(task) {
-    const nextStatus = task.status === 'done' ? 'todo' : 'done'
+    const nextStatus = task.status === 'done' ? 'pending' : 'done'
     setTasks(prev => prev.map(t => t.id === task.id ? { ...t, status: nextStatus } : t))
     const { error } = await supabasePatch('tasks', task.id, { status: nextStatus })
     if (error) {
@@ -212,7 +219,7 @@ export default function TasksPage() {
         ) : (
           <div className="divide-y divide-border">
             {filtered.map(task => {
-              const isOverdue = task.due_date && task.due_date < today && task.status !== 'done' && task.status !== 'cancelled'
+              const isOverdue = task.due_date && task.due_date < today && task.status !== 'done'
               const assignee  = task.profiles ?? assigneeById[task.assignee_id]
               const creator   = assigneeById[task.created_by]
               const isDone    = task.status === 'done'
@@ -329,23 +336,24 @@ function DueDate({ date, isOverdue }) {
 }
 
 function StatusSelect({ value, onChange, compact = false }) {
+  const normalized = normStatus(value)
   return (
     <select
-      value={value ?? 'todo'}
+      value={normalized}
       onChange={e => onChange(e.target.value)}
       onClick={e => e.stopPropagation()}
-      className={`text-xs rounded-full px-2.5 py-1 border-0 outline-none cursor-pointer appearance-none text-center ${compact ? 'shrink-0' : 'w-full'} ${STATUS_BADGE[value ?? 'todo']}`}
+      className={`text-xs rounded-full px-2.5 py-1 border-0 outline-none cursor-pointer appearance-none text-center ${compact ? 'shrink-0' : 'w-full'} ${STATUS_BADGE[normalized]}`}
     >
-      <option value="todo">К выполнению</option>
+      <option value="pending">Входящие</option>
       <option value="in_progress">В работе</option>
+      <option value="review">На проверке</option>
       <option value="done">Готово</option>
-      <option value="cancelled">Отменено</option>
     </select>
   )
 }
 
 function AddTaskModal({ projects, team, onClose, onCreated }) {
-  const [form, setForm] = useState({ title: '', description: '', project_id: '', assignee_id: '', due_date: '', priority: 'medium', status: 'todo' })
+  const [form, setForm] = useState({ title: '', description: '', project_id: '', assignee_id: '', due_date: '', priority: 'medium', status: 'pending' })
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState('')
 
@@ -446,8 +454,9 @@ function AddTaskModal({ projects, team, onClose, onCreated }) {
             <div>
               <label className="block text-xs font-medium text-text mb-1">Статус</label>
               <select className="input" value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value }))}>
-                <option value="todo">К выполнению</option>
+                <option value="pending">Входящие</option>
                 <option value="in_progress">В работе</option>
+                <option value="review">На проверке</option>
                 <option value="done">Готово</option>
               </select>
             </div>

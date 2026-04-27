@@ -98,7 +98,7 @@ export default function VoiceInput() {
           assignee_id: finalAssignee,
           due_date:    parsed.due_date     || null,
           priority:    parsed.priority     ?? 'medium',
-          status:      'todo',
+          status:      'pending',
           voice_text:  text,
           created_by:  user?.id,
         },

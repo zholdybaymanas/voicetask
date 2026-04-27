@@ -10,6 +10,7 @@ const PRIORITY_DOT = { high: 'bg-red-500', medium: 'bg-amber-400', low: 'bg-mute
 
 const NOTIF_DOT = {
   new_task:     'bg-primary',
+  task_review:  'bg-violet-500',
   task_done:    'bg-emerald-500',
   task_overdue: 'bg-red-500',
   mention:      'bg-amber-500',
@@ -94,7 +95,6 @@ export default function Dashboard() {
           select: '*,projects(name,color)',
           // Only tasks where I'm assignee or creator (RLS may also enforce this).
           filters: [
-            'status=neq.cancelled',
             `or=(assignee_id.eq.${user.id},created_by.eq.${user.id})`,
             'order=created_at.desc',
           ],
@@ -117,7 +117,7 @@ export default function Dashboard() {
   }
 
   async function quickToggleDone(task) {
-    const nextStatus = task.status === 'done' ? 'todo' : 'done'
+    const nextStatus = task.status === 'done' ? 'pending' : 'done'
     setTasks(prev => prev.map(t => t.id === task.id ? { ...t, status: nextStatus } : t))
     const { error } = await supabasePatch('tasks', task.id, { status: nextStatus })
     if (error) {

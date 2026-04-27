@@ -57,6 +57,27 @@ create trigger on_auth_user_created
 
 Если оставлено включённым — после signup юзер увидит сообщение «Подтвердите email», и должен кликнуть по ссылке в письме перед первым входом.
 
+### 1.2.3. Миграция статусов задач (Kanban)
+
+Канбан использует 4 статуса: `pending`, `in_progress`, `review`, `done`.
+Если у вас уже есть строки со старыми значениями (`todo`, `cancelled`) — выполните одной транзакцией:
+
+```sql
+-- Сначала ослабляем constraint, чтобы UPDATE прошёл
+alter table tasks drop constraint if exists tasks_status_check;
+
+-- Маппим старые значения в новые
+update tasks set status = 'pending' where status = 'todo';
+update tasks set status = 'done'    where status = 'cancelled';
+
+-- Возвращаем строгий constraint
+alter table tasks add constraint tasks_status_check
+  check (status in ('pending', 'in_progress', 'review', 'done'));
+
+-- Меняем default для будущих INSERT
+alter table tasks alter column status set default 'pending';
+```
+
 ### 1.3. RLS политики (если ещё не настроены)
 
 Минимальные политики для работы приложения:

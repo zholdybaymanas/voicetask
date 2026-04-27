@@ -6,7 +6,7 @@ export default function TaskDetailDrawer({ task, projects, team, onClose, onUpda
   const [title, setTitle]         = useState('')
   const [text, setText]           = useState('')
   const [subtasks, setSubtasks]   = useState([])
-  const [status, setStatus]       = useState('todo')
+  const [status, setStatus]       = useState('pending')
   const [assignee, setAssignee]   = useState('')
   const [project, setProject]     = useState('')
   const [dueDate, setDueDate]     = useState('')
@@ -24,7 +24,7 @@ export default function TaskDetailDrawer({ task, projects, team, onClose, onUpda
     setTitle(task.title ?? '')
     setText(parsed.text)
     setSubtasks(parsed.subtasks)
-    setStatus(task.status ?? 'todo')
+    setStatus(task.status === 'todo' ? 'pending' : (task.status ?? 'pending'))
     setAssignee(task.assignee_id ?? '')
     setProject(task.project_id ?? '')
     setDueDate(task.due_date ?? '')
@@ -192,10 +192,10 @@ export default function TaskDetailDrawer({ task, projects, team, onClose, onUpda
           <div className="grid grid-cols-[100px_1fr] gap-y-3 gap-x-3 text-sm items-center">
             <label className="text-xs text-muted">Статус</label>
             <select className="input" value={status} onChange={e => changeStatus(e.target.value)}>
-              <option value="todo">К выполнению</option>
+              <option value="pending">Входящие</option>
               <option value="in_progress">В работе</option>
+              <option value="review">На проверке</option>
               <option value="done">Готово</option>
-              <option value="cancelled">Отменено</option>
             </select>
 
             <label className="text-xs text-muted">Исполнитель</label>
@@ -322,7 +322,7 @@ export default function TaskDetailDrawer({ task, projects, team, onClose, onUpda
             </button>
           ) : (
             <button
-              onClick={() => changeStatus('todo')}
+              onClick={() => changeStatus('pending')}
               className="btn-secondary text-sm"
               disabled={saving}
             >

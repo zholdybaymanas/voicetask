@@ -3,6 +3,7 @@ import { useAuth } from './hooks/useAuth'
 import { ThemeProvider } from './contexts/ThemeContext'
 import AuthPage from './pages/AuthPage'
 import Layout from './components/Layout'
+import KanbanPage from './pages/KanbanPage'
 import Dashboard from './pages/Dashboard'
 import TasksPage from './pages/TasksPage'
 import ProjectsPage from './pages/ProjectsPage'
@@ -40,7 +41,8 @@ export default function App() {
 
           <Route element={<ProtectedRoute />}>
             <Route element={<Layout />}>
-              <Route path="/"              element={<Dashboard />} />
+              <Route path="/"              element={<KanbanPage />} />
+              <Route path="/dashboard"     element={<Dashboard />} />
               <Route path="/tasks"         element={<TasksPage />} />
               <Route path="/projects"      element={<ProjectsPage />} />
               <Route path="/team"          element={<TeamPage />} />

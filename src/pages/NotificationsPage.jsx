@@ -4,6 +4,7 @@ import { useAuth } from '../hooks/useAuth'
 
 const TYPE_CONFIG = {
   new_task:     { label: 'Новая задача',     color: 'bg-primary/15 text-primary',         dot: 'bg-primary' },
+  task_review:  { label: 'На проверке',      color: 'bg-violet-500/15 text-violet-500',   dot: 'bg-violet-500' },
   task_done:    { label: 'Задача выполнена', color: 'bg-emerald-500/15 text-emerald-500', dot: 'bg-emerald-500' },
   task_overdue: { label: 'Просрочено',       color: 'bg-red-500/15 text-red-500',         dot: 'bg-red-500' },
   mention:      { label: 'Упоминание',       color: 'bg-amber-500/15 text-amber-500',     dot: 'bg-amber-500' },
