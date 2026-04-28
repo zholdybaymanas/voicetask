@@ -46,18 +46,26 @@ export function VoiceInputProvider({ children }) {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition
 
     // iOS detection — Safari uses webkit-prefixed API and behaves
-    // differently from desktop Chrome. PWA standalone mode on iOS
-    // sometimes lacks SpeechRecognition entirely.
+    // differently from desktop Chrome. On iOS, all browsers (Chrome /
+    // Firefox / Edge) are forced to use WebKit, but only Safari exposes
+    // SpeechRecognition. iOS Chrome explicitly blocks webkitSpeechRecognition.
     const ua = navigator.userAgent || ''
     const isIOS = /iPad|iPhone|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
     const isStandalone = window.navigator.standalone === true
+    const isIOSChrome  = isIOS && /CriOS/.test(ua)
+    const isIOSFirefox = isIOS && /FxiOS/.test(ua)
+    const isIOSEdge    = isIOS && /EdgiOS/.test(ua)
+    const isIOSOtherBrowser = isIOSChrome || isIOSFirefox || isIOSEdge
     const isSafari = /Safari/.test(ua) && !/Chrome|CriOS|FxiOS|EdgiOS/.test(ua)
 
     if (!SR) {
-      if (isIOS && isStandalone) {
-        setErrorMsg('Распознавание речи в iOS-PWA не поддерживается. Откройте сайт в Safari или используйте Chrome.')
+      if (isIOSOtherBrowser) {
+        const name = isIOSChrome ? 'Chrome' : isIOSFirefox ? 'Firefox' : 'Edge'
+        setErrorMsg(`${name} на iPhone не поддерживает голосовой ввод. Откройте сайт в Safari.`)
+      } else if (isIOS && isStandalone) {
+        setErrorMsg('Голосовой ввод в iOS-PWA нестабилен. Откройте сайт в обычном Safari.')
       } else if (isIOS) {
-        setErrorMsg('Обновите iOS до 14.5 или новее, либо откройте в Safari.')
+        setErrorMsg('Обновите iOS до 14.5 или новее, либо откройте сайт в Safari.')
       } else {
         setErrorMsg('Браузер не поддерживает распознавание речи. Используйте Chrome или Edge.')
       }
