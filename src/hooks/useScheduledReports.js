@@ -64,7 +64,16 @@ function showWeeklyReport() {
   }
 }
 
+function isEnabled(key) {
+  // Toggles set in /settings. Stored as 'on' / 'off'. Missing = enabled.
+  try {
+    const v = localStorage.getItem(key)
+    return v !== 'off'
+  } catch { return true }
+}
+
 function maybeShowDaily() {
+  if (!isEnabled('voicetask:notif:daily')) return false
   const now = new Date()
   if (now.getHours() < DAILY_HOUR) return false
   const today = todayStr(now)
@@ -74,6 +83,7 @@ function maybeShowDaily() {
 }
 
 function maybeShowWeekly() {
+  if (!isEnabled('voicetask:notif:weekly')) return false
   const now = new Date()
   if (now.getDay() !== WEEKLY_DOW) return false
   if (now.getHours() < WEEKLY_HOUR) return false

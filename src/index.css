@@ -6,37 +6,20 @@
    THEME VARIABLES
    Stored as `R G B` triplets so Tailwind's `<alpha-value>` works
    (e.g. bg-primary/10 → rgb(var(--accent-rgb) / 0.1)).
+
+   5 themes: dark (default), cloud-dancer, mocha, ocean, midnight-purple
    ───────────────────────────────────────────────────────────────────── */
 
-/* LIGHT (Notion) — default */
+/* DARK — default */
 :root,
-[data-theme="light"] {
-  --bg-rgb:          255 255 255;
-  --sidebar-rgb:     247 247 245;
-  --card-rgb:        255 255 255;
-  --text-rgb:         26  26  26;
-  --muted-rgb:       155 154 151;
-  --border-rgb:      233 233 231;
-  --hover-rgb:       247 247 245;
-  --accent-rgb:       45  91 227;
-  --accent-dark-rgb:  30  63 176;
-
-  --shadow:       0 1px 3px 0 rgb(0 0 0 / 0.08), 0 1px 2px -1px rgb(0 0 0 / 0.06);
-  --shadow-hover: 0 4px 12px 0 rgb(45 91 227 / 0.12);
-  --shadow-glow:  none;
-
-  color-scheme: light;
-}
-
-/* DARK (Linear / Vercel) */
 [data-theme="dark"] {
-  --bg-rgb:           10  10  10;
-  --sidebar-rgb:      17  17  17;
-  --card-rgb:         26  26  26;
-  --text-rgb:        255 255 255;
-  --muted-rgb:       102 102 102;
-  --border-rgb:       34  34  34;
-  --hover-rgb:        34  34  34;
+  --bg-rgb:           15  17  23;
+  --sidebar-rgb:      26  29  39;
+  --card-rgb:         26  29  39;
+  --text-rgb:        226 232 240;
+  --muted-rgb:       100 116 139;
+  --border-rgb:       38  42  56;
+  --hover-rgb:        38  42  56;
   --accent-rgb:       45  91 227;
   --accent-dark-rgb:  30  63 176;
 
@@ -47,40 +30,78 @@
   color-scheme: dark;
 }
 
-/* MIDNIGHT (Cyberpunk) */
-[data-theme="midnight"] {
-  --bg-rgb:            6   6  16;
-  --sidebar-rgb:      13  13  31;
-  --card-rgb:         15  15  42;
-  --text-rgb:        226 232 255;
+/* CLOUD DANCER — light, Pantone 2026 */
+[data-theme="cloud-dancer"] {
+  --bg-rgb:          240 238 233;
+  --sidebar-rgb:     255 255 255;
+  --card-rgb:        255 255 255;
+  --text-rgb:         26  29  39;
+  --muted-rgb:       107 114 128;
+  --border-rgb:      226 222 215;
+  --hover-rgb:       240 238 233;
+  --accent-rgb:       45  91 227;
+  --accent-dark-rgb:  30  63 176;
+
+  --shadow:       0 1px 3px 0 rgb(0 0 0 / 0.06), 0 1px 2px -1px rgb(0 0 0 / 0.04);
+  --shadow-hover: 0 4px 12px 0 rgb(45 91 227 / 0.10);
+  --shadow-glow:  none;
+
+  color-scheme: light;
+}
+
+/* MOCHA — warm light */
+[data-theme="mocha"] {
+  --bg-rgb:          245 240 235;
+  --sidebar-rgb:     255 255 255;
+  --card-rgb:        255 255 255;
+  --text-rgb:         44  24  16;
+  --muted-rgb:       138 116 100;
+  --border-rgb:      232 222 211;
+  --hover-rgb:       245 240 235;
+  --accent-rgb:      164 120 100;
+  --accent-dark-rgb: 130  90  76;
+
+  --shadow:       0 1px 3px 0 rgb(44 24 16 / 0.06), 0 1px 2px -1px rgb(44 24 16 / 0.04);
+  --shadow-hover: 0 4px 12px 0 rgb(164 120 100 / 0.18);
+  --shadow-glow:  none;
+
+  color-scheme: light;
+}
+
+/* OCEAN — cool light */
+[data-theme="ocean"] {
+  --bg-rgb:          240 244 248;
+  --sidebar-rgb:     255 255 255;
+  --card-rgb:        255 255 255;
+  --text-rgb:         15  41  66;
+  --muted-rgb:       100 116 139;
+  --border-rgb:      219 226 234;
+  --hover-rgb:       240 244 248;
+  --accent-rgb:       14 165 233;
+  --accent-dark-rgb:   8 130 184;
+
+  --shadow:       0 1px 3px 0 rgb(15 41 66 / 0.06), 0 1px 2px -1px rgb(15 41 66 / 0.04);
+  --shadow-hover: 0 4px 12px 0 rgb(14 165 233 / 0.16);
+  --shadow-glow:  none;
+
+  color-scheme: light;
+}
+
+/* MIDNIGHT PURPLE — dark with neon accent */
+[data-theme="midnight-purple"] {
+  --bg-rgb:           13  13  26;
+  --sidebar-rgb:      21  21  42;
+  --card-rgb:         21  21  42;
+  --text-rgb:        226 232 240;
   --muted-rgb:       110 110 160;
-  --border-rgb:       26  26  62;
-  --hover-rgb:        26  26  62;
+  --border-rgb:       35  35  65;
+  --hover-rgb:        35  35  65;
   --accent-rgb:      124  58 237;
   --accent-dark-rgb:  90  30 200;
 
-  --shadow:       0 1px 3px 0 rgb(0 0 0 / 0.6), 0 0 0 1px rgb(124 58 237 / 0.1);
+  --shadow:       0 1px 3px 0 rgb(0 0 0 / 0.6), 0 0 0 1px rgb(124 58 237 / 0.08);
   --shadow-hover: 0 4px 16px 0 rgb(124 58 237 / 0.35);
   --shadow-glow:  0 0 16px rgb(124 58 237 / 0.55);
-
-  color-scheme: dark;
-}
-
-/* FOREST (Natural) */
-[data-theme="forest"] {
-  --bg-rgb:           13  17  23;
-  --sidebar-rgb:      22  27  34;
-  --card-rgb:         28  33  40;
-  --text-rgb:        205 217 229;
-  --muted-rgb:       124 138 153;
-  --border-rgb:       48  54  61;
-  --hover-rgb:        48  54  61;
-  --accent-rgb:       16 185 129;
-  --accent-dark-rgb:   5 150 105;
-
-  --shadow:       0 1px 3px 0 rgb(0 0 0 / 0.4);
-  --shadow-hover: 0 4px 12px 0 rgb(16 185 129 / 0.18);
-  --shadow-glow:  none;
 
   color-scheme: dark;
 }
@@ -141,20 +162,13 @@
   background: rgb(var(--muted-rgb) / 0.6);
 }
 
-[data-theme="midnight"] ::-webkit-scrollbar-thumb {
+[data-theme="midnight-purple"] ::-webkit-scrollbar-thumb {
   background: rgb(var(--accent-rgb) / 0.4);
   box-shadow: 0 0 6px rgb(var(--accent-rgb) / 0.5);
 }
-[data-theme="midnight"] ::-webkit-scrollbar-thumb:hover {
+[data-theme="midnight-purple"] ::-webkit-scrollbar-thumb:hover {
   background: rgb(var(--accent-rgb) / 0.7);
   box-shadow: 0 0 10px rgb(var(--accent-rgb) / 0.7);
-}
-
-[data-theme="forest"] ::-webkit-scrollbar-thumb {
-  background: rgb(var(--accent-rgb) / 0.35);
-}
-[data-theme="forest"] ::-webkit-scrollbar-thumb:hover {
-  background: rgb(var(--accent-rgb) / 0.6);
 }
 
 /* ─────────────────────────────────────────────────────────────────────
@@ -204,19 +218,16 @@
   100% { transform: scale(1); }
 }
 
-[data-theme="midnight"] .task-check {
+[data-theme="midnight-purple"] .task-check {
   border-radius: 5px;
   border-color: rgb(var(--accent-rgb) / 0.5);
 }
-[data-theme="midnight"] .task-check:hover {
+[data-theme="midnight-purple"] .task-check:hover {
   box-shadow: 0 0 8px rgb(var(--accent-rgb) / 0.7);
 }
-[data-theme="midnight"] .task-check.is-done {
+[data-theme="midnight-purple"] .task-check.is-done {
   box-shadow: 0 0 12px rgb(var(--accent-rgb) / 0.8);
 }
-
-[data-theme="forest"] .task-check { border-radius: 5px; }
-[data-theme="forest"] .task-check:hover { background: rgb(var(--accent-rgb) / 0.15); }
 
 /* ─────────────────────────────────────────────────────────────────────
    FAB — accent glow per theme
@@ -227,13 +238,9 @@
 }
 .fab-accent:hover { background: rgb(var(--accent-dark-rgb)); }
 
-[data-theme="midnight"] .fab-accent {
+[data-theme="midnight-purple"] .fab-accent {
   box-shadow: 0 0 24px rgb(var(--accent-rgb) / 0.7),
               0 0 48px rgb(var(--accent-rgb) / 0.3);
-}
-
-[data-theme="forest"] .fab-accent {
-  box-shadow: 0 8px 24px -4px rgb(var(--accent-rgb) / 0.5);
 }
 
 /* ─────────────────────────────────────────────────────────────────────
@@ -243,14 +250,10 @@
   background: rgb(var(--accent-rgb) / 0.1);
   color: rgb(var(--accent-rgb));
 }
-[data-theme="midnight"] .nav-active {
+[data-theme="midnight-purple"] .nav-active {
   background: rgb(var(--accent-rgb) / 0.15);
   box-shadow: inset 2px 0 0 rgb(var(--accent-rgb)),
               0 0 12px rgb(var(--accent-rgb) / 0.2);
-}
-[data-theme="forest"] .nav-active {
-  background: rgb(var(--accent-rgb) / 0.12);
-  box-shadow: inset 2px 0 0 rgb(var(--accent-rgb));
 }
 [data-theme="dark"] .nav-active {
   background: rgb(var(--accent-rgb) / 0.18);

@@ -1,14 +1,32 @@
 import { createContext, useContext, useEffect, useState } from 'react'
 
+// Each theme entry includes the swatch colors used by the picker UI on
+// /settings (small color circles).
 export const THEMES = [
-  { id: 'light',    name: 'Light',    swatch: '#FFFFFF', accent: '#2D5BE3', borderColor: '#E9E9E7' },
-  { id: 'dark',     name: 'Dark',     swatch: '#0A0A0A', accent: '#2D5BE3', borderColor: '#222222' },
-  { id: 'midnight', name: 'Midnight', swatch: '#060610', accent: '#7C3AED', borderColor: '#1A1A3E' },
-  { id: 'forest',   name: 'Forest',   swatch: '#0D1117', accent: '#10B981', borderColor: '#30363D' },
+  {
+    id: 'dark', name: 'Тёмная',
+    swatch: '#0F1117', accent: '#2D5BE3', borderColor: '#262A38',
+  },
+  {
+    id: 'cloud-dancer', name: 'Cloud Dancer',
+    swatch: '#F0EEE9', accent: '#2D5BE3', borderColor: '#E2DED7',
+  },
+  {
+    id: 'mocha', name: 'Mocha',
+    swatch: '#F5F0EB', accent: '#A47864', borderColor: '#E8DED3',
+  },
+  {
+    id: 'ocean', name: 'Ocean',
+    swatch: '#F0F4F8', accent: '#0EA5E9', borderColor: '#DBE2EA',
+  },
+  {
+    id: 'midnight-purple', name: 'Midnight Purple',
+    swatch: '#0D0D1A', accent: '#7C3AED', borderColor: '#23234B',
+  },
 ]
 
-const STORAGE_KEY = 'voicetask:theme'
-const DEFAULT_THEME = 'light'
+export const STORAGE_KEY = 'voicetask:theme'
+export const DEFAULT_THEME = 'dark'
 
 const ThemeContext = createContext(null)
 

@@ -11,6 +11,7 @@ import ProjectDetailPage from './pages/ProjectDetailPage'
 import TeamPage from './pages/TeamPage'
 import NotificationsPage from './pages/NotificationsPage'
 import ReportsPage from './pages/ReportsPage'
+import SettingsPage from './pages/SettingsPage'
 
 const Spinner = () => (
   <div className="min-h-screen bg-bg flex items-center justify-center">
@@ -51,6 +52,7 @@ export default function App() {
                 <Route path="/team"          element={<TeamPage />} />
                 <Route path="/reports"       element={<ReportsPage />} />
                 <Route path="/notifications" element={<NotificationsPage />} />
+                <Route path="/settings"      element={<SettingsPage />} />
               </Route>
             </Route>
 

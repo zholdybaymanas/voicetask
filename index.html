@@ -27,6 +27,17 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+
+    <!-- Apply saved theme synchronously to prevent FOUC on reload -->
+    <script>
+      (function () {
+        var valid = ['dark','cloud-dancer','mocha','ocean','midnight-purple'];
+        var t = null;
+        try { t = localStorage.getItem('voicetask:theme'); } catch (e) {}
+        if (!t || valid.indexOf(t) === -1) t = 'dark';
+        document.documentElement.setAttribute('data-theme', t);
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
