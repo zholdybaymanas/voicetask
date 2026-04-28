@@ -56,16 +56,20 @@ export default function TasksPage() {
   useEffect(() => {
     if (!user?.id) return
     loadAll()
-    window.addEventListener('voiceTaskCreated', loadAll)
+    const silentReload = () => loadAll({ silent: true })
+    window.addEventListener('voiceTaskCreated', silentReload)
     const ch = supabase.channel('tasks-rt')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks' }, loadAll)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks' }, silentReload)
       .subscribe()
-    return () => { window.removeEventListener('voiceTaskCreated', loadAll); supabase.removeChannel(ch) }
+    return () => {
+      window.removeEventListener('voiceTaskCreated', silentReload)
+      supabase.removeChannel(ch)
+    }
   }, [user?.id, tab])
 
-  async function loadAll() {
+  async function loadAll({ silent = false } = {}) {
     if (!user?.id) return
-    setLoading(true)
+    if (!silent) setLoading(true)
     setError(null)
     try {
       // Build per-tab filter
@@ -93,7 +97,7 @@ export default function TasksPage() {
       console.error('[TasksPage] loadAll:', err)
       setError(err.message ?? 'Не удалось загрузить задачи')
     } finally {
-      setLoading(false)
+      if (!silent) setLoading(false)
     }
   }
 
@@ -108,12 +112,15 @@ export default function TasksPage() {
   }
 
   async function updateStatus(id, status) {
+    const prev = tasks.find(t => t.id === id)
+    if (!prev) return
+    // Optimistic — apply locally first, roll back on error.
+    setTasks(curr => curr.map(t => t.id === id ? { ...t, status } : t))
     const { error } = await supabasePatch('tasks', id, { status })
     if (error) {
       console.error('[TasksPage] updateStatus:', error)
-      return
+      setTasks(curr => curr.map(t => t.id === id ? { ...t, status: prev.status } : t))
     }
-    setTasks(prev => prev.map(t => t.id === id ? { ...t, status } : t))
   }
 
   function applyTaskUpdate(updated) {
@@ -207,7 +214,7 @@ export default function TasksPage() {
         ) : error ? (
           <div className="flex flex-col items-center justify-center py-12 gap-3 text-center px-4">
             <p className="text-sm text-muted break-words">{error}</p>
-            <button className="btn-secondary text-sm" onClick={loadAll}>Повторить</button>
+            <button className="btn-secondary text-sm" onClick={() => loadAll()}>Повторить</button>
           </div>
         ) : filtered.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 text-center">
