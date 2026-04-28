@@ -1,7 +1,9 @@
-// FAB voice button + global error/toast UI.
+// FAB voice button + global error/toast UI + clarification modal.
 // All recording logic lives in VoiceInputContext — this is just the
 // floating button that appears on every page EXCEPT the home page,
-// where the big centered mic takes its place.
+// where the big centered mic takes its place. The toast, error modal,
+// and clarification modal render on every page.
+import { useState, useEffect } from 'react'
 import { useLocation } from 'react-router-dom'
 import { useVoiceInput } from '../contexts/VoiceInputContext'
 
@@ -84,6 +86,9 @@ export default function VoiceInput() {
         </div>
       )}
 
+      {/* Clarification modal — shown when parser confidence is low */}
+      <ClarificationModal />
+
       {/* Error modal */}
       {state === 'error' && (
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center px-4 pb-4 sm:pb-0">
@@ -106,5 +111,128 @@ export default function VoiceInput() {
         </div>
       )}
     </>
+  )
+}
+
+function ClarificationModal() {
+  const { pendingTask, projects, team, confirmPendingTask, cancelPendingTask } = useVoiceInput()
+  const [assigneeId, setAssigneeId] = useState('')
+  const [projectId,  setProjectId]  = useState('')
+  const [deadline,   setDeadline]   = useState('')
+  const [saving,     setSaving]     = useState(false)
+
+  // Reset form when a new pending task arrives
+  useEffect(() => {
+    if (pendingTask) {
+      setAssigneeId(pendingTask.assigned_to ?? '')
+      setProjectId(pendingTask.project_id ?? '')
+      setDeadline(pendingTask.deadline ?? '')
+      setSaving(false)
+    }
+  }, [pendingTask])
+
+  if (!pendingTask) return null
+
+  async function submit() {
+    setSaving(true)
+    await confirmPendingTask({
+      assigned_to: assigneeId || null,
+      project_id:  projectId  || null,
+      deadline:    deadline   || null,
+    })
+    // setSaving(false) — modal will unmount when pendingTask becomes null
+  }
+
+  const confidencePercent = Math.round((pendingTask.confidence ?? 0) * 100)
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center px-0 sm:px-4">
+      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => !saving && cancelPendingTask()} />
+      <div className="relative bg-card border border-border rounded-t-2xl sm:rounded-2xl shadow-2xl w-full max-w-md p-5 sm:p-6">
+        <div className="flex items-start justify-between mb-4 gap-3">
+          <div className="min-w-0 flex-1">
+            <h2 className="text-base font-semibold text-text">Уточните задачу</h2>
+            <p className="text-xs text-muted mt-0.5">
+              Уверенность распознавания: {confidencePercent}%
+            </p>
+          </div>
+          <button
+            onClick={() => !saving && cancelPendingTask()}
+            className="text-muted hover:text-text p-1 rounded-lg hover:bg-hover shrink-0"
+            aria-label="Отмена"
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        <div className="bg-hover rounded-lg px-3 py-2.5 mb-4">
+          <p className="text-xs text-muted mb-0.5">Название</p>
+          <p className="text-sm text-text break-words">{pendingTask.title}</p>
+        </div>
+
+        <div className="space-y-3">
+          <div>
+            <label className="block text-xs font-medium text-text mb-1">Кому назначить?</label>
+            <select
+              className="input"
+              value={assigneeId}
+              onChange={e => setAssigneeId(e.target.value)}
+              autoFocus
+            >
+              <option value="">Себе</option>
+              {team.map(u => (
+                <option key={u.id} value={u.id}>{u.full_name || u.email}</option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-text mb-1">В какой проект?</label>
+            <select
+              className="input"
+              value={projectId}
+              onChange={e => setProjectId(e.target.value)}
+            >
+              <option value="">— без проекта —</option>
+              {projects.map(p => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-text mb-1">Дедлайн</label>
+            <input
+              type="date"
+              className="input"
+              value={deadline}
+              onChange={e => setDeadline(e.target.value)}
+            />
+          </div>
+        </div>
+
+        <div className="flex justify-end gap-2 mt-5">
+          <button
+            type="button"
+            className="btn-secondary"
+            onClick={cancelPendingTask}
+            disabled={saving}
+          >
+            Отмена
+          </button>
+          <button
+            type="button"
+            className="btn-primary flex items-center gap-2"
+            onClick={submit}
+            disabled={saving}
+          >
+            {saving && <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />}
+            Создать задачу
+          </button>
+        </div>
+      </div>
+    </div>
   )
 }

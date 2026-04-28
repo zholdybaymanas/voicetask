@@ -12,6 +12,7 @@ export function VoiceInputProvider({ children }) {
   const [toast,    setToast]    = useState(null)
   const [projects, setProjects] = useState([])
   const [team,     setTeam]     = useState([])
+  const [pendingTask, setPendingTask] = useState(null)
 
   const recognitionRef = useRef(null)
   const finalRef       = useRef('')
@@ -105,6 +106,54 @@ export function VoiceInputProvider({ children }) {
     }
   }, [])
 
+  // Insert a task using the resolved fields. Used by both the auto-flow
+  // and the clarification confirmation.
+  async function createTask({ title, assigned_to, project_id, deadline, voice_text }) {
+    const user = getCurrentUser()
+    const finalAssignee = assigned_to || user?.id || null
+    const isDelegated   = finalAssignee && finalAssignee !== user?.id
+
+    const result = await supabaseRest('tasks', {
+      method: 'POST',
+      body: {
+        title,
+        description: null,
+        project_id:  project_id  || null,
+        assignee_id: finalAssignee,
+        due_date:    deadline    || null,
+        priority:    'medium',
+        status:      'pending',
+        voice_text,
+        created_by:  user?.id,
+        sort_order:  Date.now() / 1000,
+      },
+    })
+    if (result.error) throw new Error(result.error.message ?? 'Ошибка создания задачи')
+
+    const createdTask = Array.isArray(result.data) ? result.data[0] : result.data
+
+    if (isDelegated) {
+      const notifRes = await supabaseRest('notifications', {
+        method: 'POST',
+        body: {
+          user_id: finalAssignee,
+          task_id: createdTask?.id,
+          type:    'new_task',
+          title:   `Вам назначена новая задача: ${title}`,
+        },
+      })
+      if (notifRes.error) console.warn('[Voice] notification insert failed:', notifRes.error)
+      const recipient = team.find(u => u.id === finalAssignee)
+      const name = recipient?.full_name || recipient?.email || 'исполнителю'
+      showToast(`✓ Задача отправлена ${name}`)
+    } else {
+      showToast(`✓ Задача создана: ${title}`)
+    }
+
+    window.dispatchEvent(new CustomEvent('voiceTaskCreated'))
+    return createdTask
+  }
+
   async function processAndCreate(text) {
     setState(S.PROCESSING)
     try {
@@ -116,49 +165,33 @@ export function VoiceInputProvider({ children }) {
       const parsed = await res.json()
       if (!res.ok) throw new Error(parsed.error ?? 'Ошибка сервера')
 
-      const title = parsed.title?.trim() || text
-      const user  = getCurrentUser()
-      const finalAssignee = parsed.assignee_id || user?.id || null
-      const isDelegated   = finalAssignee && finalAssignee !== user?.id
+      const title = (parsed.title ?? '').trim() || text
+      const confidence = Number.isFinite(parsed.confidence) ? parsed.confidence : 0.5
+      const needsClarification = !parsed.assigned_to || confidence < 0.7
 
-      const result = await supabaseRest('tasks', {
-        method: 'POST',
-        body: {
+      if (needsClarification) {
+        // Pause and ask the user. Pre-fill what Claude was sure about.
+        setPendingTask({
           title,
-          description: parsed.description  || null,
-          project_id:  parsed.project_id   || null,
-          assignee_id: finalAssignee,
-          due_date:    parsed.due_date     || null,
-          priority:    parsed.priority     ?? 'medium',
-          status:      'pending',
+          assigned_to: parsed.assigned_to ?? null,
+          project_id:  parsed.project_id  ?? null,
+          deadline:    parsed.deadline    ?? null,
+          confidence,
           voice_text:  text,
-          created_by:  user?.id,
-          sort_order:  Date.now() / 1000,
-        },
-      })
-      if (result.error) throw new Error(result.error.message ?? 'Ошибка создания задачи')
-
-      const createdTask = Array.isArray(result.data) ? result.data[0] : result.data
-
-      if (isDelegated) {
-        const notifRes = await supabaseRest('notifications', {
-          method: 'POST',
-          body: {
-            user_id: finalAssignee,
-            task_id: createdTask?.id,
-            type:    'new_task',
-            title:   `Вам назначена новая задача: ${title}`,
-          },
         })
-        if (notifRes.error) console.warn('[Voice] notification insert failed:', notifRes.error)
-        const recipient = team.find(u => u.id === finalAssignee)
-        const name = recipient?.full_name || recipient?.email || 'исполнителю'
-        showToast(`✓ Задача отправлена ${name}`)
-      } else {
-        showToast(`✓ Задача создана: ${title}`)
+        setTranscript('')
+        setState(S.IDLE)
+        return
       }
 
-      window.dispatchEvent(new CustomEvent('voiceTaskCreated'))
+      // Confidence high AND assignee set — create immediately
+      await createTask({
+        title,
+        assigned_to: parsed.assigned_to,
+        project_id:  parsed.project_id,
+        deadline:    parsed.deadline,
+        voice_text:  text,
+      })
       setTranscript('')
       setState(S.IDLE)
     } catch (err) {
@@ -167,6 +200,31 @@ export function VoiceInputProvider({ children }) {
       setState(S.ERROR)
       setTranscript('')
     }
+  }
+
+  async function confirmPendingTask({ assigned_to, project_id, deadline }) {
+    if (!pendingTask) return
+    setState(S.PROCESSING)
+    try {
+      await createTask({
+        title:       pendingTask.title,
+        assigned_to: assigned_to ?? pendingTask.assigned_to,
+        project_id:  project_id  ?? pendingTask.project_id,
+        deadline:    deadline    ?? pendingTask.deadline,
+        voice_text:  pendingTask.voice_text,
+      })
+      setPendingTask(null)
+      setState(S.IDLE)
+    } catch (err) {
+      console.error('[Voice] confirmPendingTask:', err)
+      setErrorMsg(err.message)
+      setState(S.ERROR)
+    }
+  }
+
+  function cancelPendingTask() {
+    setPendingTask(null)
+    setState(S.IDLE)
   }
 
   const reset = useCallback(() => {
@@ -194,6 +252,8 @@ export function VoiceInputProvider({ children }) {
     isError:      state === S.ERROR,
     isIdle:       state === S.IDLE,
     startListening, stopListening, reset,
+    projects, team,
+    pendingTask, confirmPendingTask, cancelPendingTask,
   }
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
