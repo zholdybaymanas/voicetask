@@ -1,10 +1,10 @@
 import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom'
 import { useAuth } from './hooks/useAuth'
 import { ThemeProvider } from './contexts/ThemeContext'
+import { VoiceInputProvider } from './contexts/VoiceInputContext'
 import AuthPage from './pages/AuthPage'
 import Layout from './components/Layout'
-import Dashboard from './pages/Dashboard'
-import KanbanPage from './pages/KanbanPage'
+import HomePage from './pages/HomePage'
 import TasksPage from './pages/TasksPage'
 import ProjectsPage from './pages/ProjectsPage'
 import ProjectDetailPage from './pages/ProjectDetailPage'
@@ -36,27 +36,27 @@ export default function App() {
   return (
     <ThemeProvider>
       <BrowserRouter>
-        <Routes>
-          <Route element={<PublicRoute />}>
-            <Route path="/auth" element={<AuthPage />} />
-          </Route>
-
-          <Route element={<ProtectedRoute />}>
-            <Route element={<Layout />}>
-              <Route path="/"              element={<Dashboard />} />
-              <Route path="/dashboard"     element={<Dashboard />} />
-              <Route path="/kanban"        element={<KanbanPage />} />
-              <Route path="/tasks"         element={<TasksPage />} />
-              <Route path="/projects"      element={<ProjectsPage />} />
-              <Route path="/projects/:id"  element={<ProjectDetailPage />} />
-              <Route path="/team"          element={<TeamPage />} />
-              <Route path="/reports"       element={<ReportsPage />} />
-              <Route path="/notifications" element={<NotificationsPage />} />
+        <VoiceInputProvider>
+          <Routes>
+            <Route element={<PublicRoute />}>
+              <Route path="/auth" element={<AuthPage />} />
             </Route>
-          </Route>
 
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
+            <Route element={<ProtectedRoute />}>
+              <Route element={<Layout />}>
+                <Route path="/"              element={<HomePage />} />
+                <Route path="/tasks"         element={<TasksPage />} />
+                <Route path="/projects"      element={<ProjectsPage />} />
+                <Route path="/projects/:id"  element={<ProjectDetailPage />} />
+                <Route path="/team"          element={<TeamPage />} />
+                <Route path="/reports"       element={<ReportsPage />} />
+                <Route path="/notifications" element={<NotificationsPage />} />
+              </Route>
+            </Route>
+
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </VoiceInputProvider>
       </BrowserRouter>
     </ThemeProvider>
   )

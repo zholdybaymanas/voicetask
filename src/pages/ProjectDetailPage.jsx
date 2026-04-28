@@ -5,6 +5,7 @@ import { useAuth } from '../hooks/useAuth'
 import { descriptionPreview } from '../lib/description'
 import TaskDetailDrawer from '../components/TaskDetailDrawer'
 import TaskCheck from '../components/TaskCheck'
+import KanbanPage from './KanbanPage'
 
 const STATUS_OPTIONS = [
   { value: '',            label: 'Все' },
@@ -37,6 +38,7 @@ export default function ProjectDetailPage() {
   const [error, setError]     = useState(null)
   const [filterStatus, setFilterStatus] = useState('')
   const [selectedId, setSelectedId] = useState(null)
+  const [view, setView] = useState('tasks') // 'tasks' | 'kanban'
 
   useEffect(() => {
     if (!id) return
@@ -180,6 +182,33 @@ export default function ProjectDetailPage() {
         </div>
       </div>
 
+      {/* View tabs: Задачи / Канбан */}
+      <div className="flex bg-hover rounded-lg p-1 w-fit">
+        <button
+          type="button"
+          onClick={() => setView('tasks')}
+          className={`text-sm font-medium py-1.5 px-4 rounded-md transition-colors ${
+            view === 'tasks' ? 'bg-card text-text shadow-card' : 'text-muted hover:text-text'
+          }`}
+        >
+          Задачи
+        </button>
+        <button
+          type="button"
+          onClick={() => setView('kanban')}
+          className={`text-sm font-medium py-1.5 px-4 rounded-md transition-colors ${
+            view === 'kanban' ? 'bg-card text-text shadow-card' : 'text-muted hover:text-text'
+          }`}
+        >
+          Канбан
+        </button>
+      </div>
+
+      {view === 'kanban' ? (
+        <KanbanPage projectFilter={id} />
+      ) : (
+      <>
+
       {/* Status filter */}
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-sm text-muted">Статус:</span>
@@ -262,6 +291,9 @@ export default function ProjectDetailPage() {
           </div>
         )}
       </div>
+
+      </>
+      )}
 
       {selectedTask && (
         <TaskDetailDrawer

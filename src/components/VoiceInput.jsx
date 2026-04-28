@@ -1,165 +1,44 @@
-import { useState, useRef, useEffect } from 'react'
-import { supabaseRest, getCurrentUser } from '../lib/supabase'
+// FAB voice button + global error/toast UI.
+// All recording logic lives in VoiceInputContext — this is just the
+// floating button that appears on every page EXCEPT the home page,
+// where the big centered mic takes its place.
+import { useLocation } from 'react-router-dom'
+import { useVoiceInput } from '../contexts/VoiceInputContext'
 
-const S = { IDLE: 'idle', LISTENING: 'listening', PROCESSING: 'processing', ERROR: 'error' }
+const isTouchDevice = typeof window !== 'undefined'
+  && ('ontouchstart' in window || (navigator.maxTouchPoints ?? 0) > 0)
 
 export default function VoiceInput() {
-  const [state, setState]     = useState(S.IDLE)
-  const [errorMsg, setErrorMsg] = useState('')
-  const [toast, setToast]     = useState(null)
-  const [projects, setProjects] = useState([])
-  const [team, setTeam]       = useState([])
-  const recognitionRef        = useRef(null)
-  const toastTimerRef         = useRef(null)
+  const location = useLocation()
+  const showFab  = location.pathname !== '/'
+  const { state, errorMsg, toast, isListening, isProcessing,
+          startListening, stopListening, reset } = useVoiceInput()
 
-  useEffect(() => {
-    supabaseRest('projects', { select: 'id,name', filters: ['archived=eq.false'] })
-      .then(({ data, error }) => {
-        if (error) console.error('[VoiceInput] projects:', error)
-        setProjects(data ?? [])
-      })
-    supabaseRest('profiles', { select: 'id,full_name,email' })
-      .then(({ data, error }) => {
-        if (error) console.error('[VoiceInput] profiles:', error)
-        setTeam(data ?? [])
-      })
-  }, [])
+  const fabLabel = isListening ? 'Остановить' : isProcessing ? 'Обработка...' : null
 
-  // Allow other parts of the app (e.g. Dashboard CTA) to start the FAB.
-  useEffect(() => {
-    const handler = () => {
-      if (state === S.IDLE || state === S.ERROR) startListening()
-    }
-    window.addEventListener('voiceInputTrigger', handler)
-    return () => window.removeEventListener('voiceInputTrigger', handler)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state])
+  // Touch: hold to record. Mouse: click to toggle. Avoid double-fire by
+  // using onTouchStart/End on touch devices and onClick on others.
+  const touchHandlers = isTouchDevice ? {
+    onTouchStart: (e) => {
+      e.preventDefault()
+      if (!isProcessing && !isListening) startListening()
+    },
+    onTouchEnd: (e) => {
+      e.preventDefault()
+      if (isListening) stopListening()
+    },
+    onTouchCancel: () => { if (isListening) stopListening() },
+  } : {}
 
-  function showToast(message) {
-    clearTimeout(toastTimerRef.current)
-    setToast({ message })
-    toastTimerRef.current = setTimeout(() => setToast(null), 3500)
+  const clickHandler = isTouchDevice ? () => {} : () => {
+    if (isProcessing) return
+    if (isListening) stopListening()
+    else startListening()
   }
-
-  function startListening() {
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition
-    if (!SR) {
-      setErrorMsg('Браузер не поддерживает распознавание речи. Используйте Chrome или Edge.')
-      setState(S.ERROR)
-      return
-    }
-    const rec = new SR()
-    recognitionRef.current = rec
-    rec.lang = 'ru-RU'
-    rec.continuous = false
-    rec.interimResults = false
-    rec.maxAlternatives = 1
-
-    rec.onresult = (e) => {
-      const text = e.results[0][0].transcript
-      processAndCreate(text)
-    }
-    rec.onerror = (e) => {
-      const msgs = {
-        'not-allowed': 'Нет доступа к микрофону — разрешите его в браузере',
-        'no-speech':   'Речь не обнаружена, попробуйте ещё раз',
-        'network':     'Ошибка сети при распознавании',
-      }
-      setErrorMsg(msgs[e.error] ?? `Ошибка: ${e.error}`)
-      setState(S.ERROR)
-    }
-    rec.onend = () => { recognitionRef.current = null }
-
-    setState(S.LISTENING)
-    rec.start()
-  }
-
-  function stopListening() {
-    recognitionRef.current?.stop()
-    setState(S.IDLE)
-  }
-
-  async function processAndCreate(text) {
-    setState(S.PROCESSING)
-    try {
-      const res = await fetch('/api/tasks', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ transcript: text, projects, team }),
-      })
-      const parsed = await res.json()
-      if (!res.ok) throw new Error(parsed.error ?? 'Ошибка сервера')
-
-      const title = parsed.title?.trim() || text
-
-      const user = getCurrentUser()
-      // Default assignee to the creator when Claude didn't pick anyone — that
-      // way every voice-created task lands somewhere visible (Inbox of the
-      // creator). Explicit assignee from the parser overrides this.
-      const finalAssignee = parsed.assignee_id || user?.id || null
-      const isDelegated   = finalAssignee && finalAssignee !== user?.id
-
-      const result = await supabaseRest('tasks', {
-        method: 'POST',
-        body: {
-          title,
-          description: parsed.description  || null,
-          project_id:  parsed.project_id   || null,
-          assignee_id: finalAssignee,
-          due_date:    parsed.due_date     || null,
-          priority:    parsed.priority     ?? 'medium',
-          status:      'pending',
-          voice_text:  text,
-          created_by:  user?.id,
-          sort_order:  Date.now() / 1000,
-        },
-      })
-      if (result.error) throw new Error(result.error.message ?? 'Ошибка создания задачи')
-
-      const createdTask = Array.isArray(result.data) ? result.data[0] : result.data
-
-      // Notify the assignee when delegating to someone else. Non-fatal.
-      if (isDelegated) {
-        const notifRes = await supabaseRest('notifications', {
-          method: 'POST',
-          body: {
-            user_id: finalAssignee,
-            task_id: createdTask?.id,
-            type:    'new_task',
-            title:   `Вам назначена новая задача: ${title}`,
-          },
-        })
-        if (notifRes.error) console.warn('[VoiceInput] notification insert failed:', notifRes.error)
-      }
-
-      window.dispatchEvent(new CustomEvent('voiceTaskCreated'))
-
-      // Toast wording depends on whether the task was delegated.
-      if (isDelegated) {
-        const recipient = team.find(u => u.id === finalAssignee)
-        const name = recipient?.full_name || recipient?.email || 'исполнителю'
-        showToast(`✓ Задача отправлена ${name}`)
-      } else {
-        showToast(`✓ Задача создана: ${title}`)
-      }
-      setState(S.IDLE)
-    } catch (err) {
-      console.error('[VoiceInput] processAndCreate error:', err)
-      setErrorMsg(err.message)
-      setState(S.ERROR)
-    }
-  }
-
-  function reset() {
-    recognitionRef.current?.stop()
-    setState(S.IDLE)
-    setErrorMsg('')
-  }
-
-  const fabLabel = state === S.LISTENING ? 'Остановить' : state === S.PROCESSING ? 'Обработка...' : null
 
   return (
     <>
+      {/* Toast */}
       {toast && (
         <div className="fixed bottom-20 sm:bottom-24 right-4 sm:right-7 z-50 animate-in">
           <div className="bg-card border border-border text-text text-sm font-medium px-4 py-3 rounded-xl shadow-card-hover flex items-center gap-2 max-w-xs">
@@ -171,37 +50,42 @@ export default function VoiceInput() {
         </div>
       )}
 
-      <div className="group fixed bottom-5 sm:bottom-7 right-4 sm:right-7 z-40 flex items-center gap-3">
-        <span className="hidden sm:inline-block pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-150 bg-card border border-border text-text text-xs font-medium rounded-lg px-2.5 py-1.5 whitespace-nowrap shadow-card">
-          {fabLabel ?? 'Голосовая задача'}
-        </span>
+      {/* FAB — hidden on home where the big mic lives */}
+      {showFab && (
+        <div className="group fixed bottom-5 sm:bottom-7 right-4 sm:right-7 z-40 flex items-center gap-3">
+          <span className="hidden sm:inline-block pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-150 bg-card border border-border text-text text-xs font-medium rounded-lg px-2.5 py-1.5 whitespace-nowrap shadow-card">
+            {fabLabel ?? 'Голосовая задача'}
+          </span>
 
-        <button
-          onClick={state === S.LISTENING ? stopListening : startListening}
-          disabled={state === S.PROCESSING}
-          aria-label="Голосовая задача"
-          className={`
-            relative w-14 h-14 rounded-full flex items-center justify-center
-            transition-all duration-200 hover:scale-105 active:scale-95
-            disabled:opacity-60 disabled:cursor-not-allowed
-            ${state === S.LISTENING ? 'bg-red-500 hover:bg-red-600 shadow-xl' : 'fab-accent'}
-          `}
-        >
-          {state === S.LISTENING && (
-            <span className="absolute inset-0 rounded-full bg-red-400 animate-ping opacity-50" />
-          )}
-          {state === S.PROCESSING ? (
-            <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-          ) : (
-            <svg className="w-6 h-6 text-white relative" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round"
-                d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 01-3-3V4.5a3 3 0 116 0v8.25a3 3 0 01-3 3z" />
-            </svg>
-          )}
-        </button>
-      </div>
+          <button
+            {...touchHandlers}
+            onClick={clickHandler}
+            disabled={isProcessing}
+            aria-label="Голосовая задача"
+            className={`
+              relative w-14 h-14 rounded-full flex items-center justify-center
+              transition-all duration-200 hover:scale-105 active:scale-95
+              disabled:opacity-60 disabled:cursor-not-allowed
+              ${isListening ? 'bg-red-500 hover:bg-red-600 shadow-xl' : 'fab-accent'}
+            `}
+          >
+            {isListening && (
+              <span className="absolute inset-0 rounded-full bg-red-400 animate-ping opacity-50" />
+            )}
+            {isProcessing ? (
+              <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+            ) : (
+              <svg className="w-6 h-6 text-white relative" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round"
+                  d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 01-3-3V4.5a3 3 0 116 0v8.25a3 3 0 01-3 3z" />
+              </svg>
+            )}
+          </button>
+        </div>
+      )}
 
-      {state === S.ERROR && (
+      {/* Error modal */}
+      {state === 'error' && (
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center px-4 pb-4 sm:pb-0">
           <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={reset} />
           <div className="relative bg-card border border-border rounded-2xl shadow-2xl w-full max-w-sm p-6">

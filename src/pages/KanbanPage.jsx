@@ -45,7 +45,7 @@ function useIsMobile() {
   return isMobile
 }
 
-export default function KanbanPage() {
+export default function KanbanPage({ projectFilter = null } = {}) {
   const { user, profile } = useAuth()
   const isMobile = useIsMobile()
   const [tasks, setTasks]     = useState([])
@@ -69,28 +69,28 @@ export default function KanbanPage() {
     loadAll()
     const silentReload = () => loadAll({ silent: true })
     window.addEventListener('voiceTaskCreated', silentReload)
-    const ch = supabase.channel('kanban-rt')
+    const channelName = projectFilter ? `kanban-rt-${projectFilter}` : 'kanban-rt'
+    const ch = supabase.channel(channelName)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks' }, silentReload)
       .subscribe()
     return () => {
       window.removeEventListener('voiceTaskCreated', silentReload)
       supabase.removeChannel(ch)
     }
-  }, [user?.id])
+  }, [user?.id, projectFilter])
 
   async function loadAll({ silent = false } = {}) {
     if (!user?.id) return
     if (!silent) setLoading(true)
     setError(null)
     try {
+      const taskFilters = [
+        `or=(assignee_id.eq.${user.id},created_by.eq.${user.id})`,
+        ...(projectFilter ? [`project_id=eq.${projectFilter}`] : []),
+        'order=sort_order.desc.nullslast,created_at.desc',
+      ]
       const [tasksRes, projectsRes, profilesRes] = await Promise.all([
-        supabaseRest('tasks', {
-          select: '*,projects(name,color)',
-          filters: [
-            `or=(assignee_id.eq.${user.id},created_by.eq.${user.id})`,
-            'order=sort_order.desc.nullslast,created_at.desc',
-          ],
-        }),
+        supabaseRest('tasks', { select: '*,projects(name,color)', filters: taskFilters }),
         supabaseRest('projects', { select: 'id,name', filters: ['archived=eq.false'] }),
         supabaseRest('profiles', { select: 'id,full_name,email' }),
       ])
@@ -219,6 +219,7 @@ export default function KanbanPage() {
         assignee_id: me.id,
         created_by:  me.id,
         sort_order:  Date.now() / 1000,
+        ...(projectFilter ? { project_id: projectFilter } : {}),
       },
     })
     if (result.error) {

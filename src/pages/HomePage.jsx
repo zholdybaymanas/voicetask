@@ -1,0 +1,101 @@
+import { useAuth } from '../hooks/useAuth'
+import { useVoiceInput } from '../contexts/VoiceInputContext'
+
+const isTouchDevice = typeof window !== 'undefined'
+  && ('ontouchstart' in window || (navigator.maxTouchPoints ?? 0) > 0)
+
+function getGreeting(name) {
+  const h = new Date().getHours()
+  const word = h < 12 ? 'Доброе утро' : h < 18 ? 'Добрый день' : 'Добрый вечер'
+  return name ? `${word}, ${name}` : word
+}
+
+export default function HomePage() {
+  const { profile, user } = useAuth()
+  const {
+    state, transcript, errorMsg,
+    isListening, isProcessing,
+    startListening, stopListening,
+  } = useVoiceInput()
+
+  const displayName = profile?.full_name || user?.email?.split('@')[0] || ''
+
+  const touchHandlers = isTouchDevice ? {
+    onTouchStart: (e) => {
+      e.preventDefault()
+      if (!isProcessing && !isListening) startListening()
+    },
+    onTouchEnd: (e) => {
+      e.preventDefault()
+      if (isListening) stopListening()
+    },
+    onTouchCancel: () => { if (isListening) stopListening() },
+  } : {}
+
+  const clickHandler = isTouchDevice ? () => {} : () => {
+    if (isProcessing) return
+    if (isListening) stopListening()
+    else startListening()
+  }
+
+  const hint = isProcessing
+    ? 'Обрабатываю...'
+    : isListening
+      ? (isTouchDevice ? 'Отпустите, чтобы закончить' : 'Нажмите ещё раз, чтобы остановить')
+      : (isTouchDevice ? 'Удерживайте, чтобы записать' : 'Нажмите, чтобы записать')
+
+  return (
+    <div className="flex flex-col items-center justify-center text-center px-4 min-h-[70vh]">
+      <h1 className="text-2xl sm:text-3xl font-semibold text-text mb-2">
+        {getGreeting(displayName)}
+      </h1>
+      <p className="text-sm text-muted mb-10 sm:mb-14">
+        Создайте задачу голосом
+      </p>
+
+      <button
+        {...touchHandlers}
+        onClick={clickHandler}
+        disabled={isProcessing}
+        aria-label="Голосовая задача"
+        className={`
+          relative w-32 h-32 sm:w-40 sm:h-40 rounded-full
+          flex items-center justify-center
+          transition-all duration-200 active:scale-95 select-none
+          disabled:cursor-not-allowed
+          ${isListening
+            ? 'bg-red-500 scale-105 shadow-2xl'
+            : 'fab-accent hover:scale-105'}
+        `}
+      >
+        {isListening && (
+          <span className="absolute inset-0 rounded-full bg-red-400 animate-ping opacity-40" />
+        )}
+        {isProcessing ? (
+          <div className="w-12 h-12 border-4 border-white border-t-transparent rounded-full animate-spin" />
+        ) : (
+          <svg className="w-16 h-16 sm:w-20 sm:h-20 text-white relative" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round"
+              d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 01-3-3V4.5a3 3 0 116 0v8.25a3 3 0 01-3 3z" />
+          </svg>
+        )}
+      </button>
+
+      <p className="text-xs sm:text-sm text-muted mt-6 min-h-[1.25rem]">{hint}</p>
+
+      {/* Transcript stream */}
+      <div className="mt-6 sm:mt-8 max-w-md w-full min-h-[3rem]">
+        {transcript ? (
+          <p className="text-xs sm:text-sm text-muted leading-relaxed break-words">
+            {transcript}
+          </p>
+        ) : null}
+      </div>
+
+      {/* Inline error (in addition to global modal from VoiceInput) */}
+      {state === 'error' && errorMsg && (
+        <p className="mt-4 text-xs text-red-500 max-w-md break-words">{errorMsg}</p>
+      )}
+    </div>
+  )
+}
