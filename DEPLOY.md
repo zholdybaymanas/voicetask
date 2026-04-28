@@ -95,6 +95,50 @@ alter table tasks add constraint tasks_status_check
 alter table tasks alter column status set default 'pending';
 ```
 
+### 1.2.5. Google Calendar интеграция
+
+**Таблица `user_integrations`** + колонка `tasks.gcal_event_id`. Выполни в SQL Editor:
+
+```sql
+create table if not exists user_integrations (
+  id            uuid primary key default gen_random_uuid(),
+  user_id       uuid references profiles(id) on delete cascade,
+  provider      text not null,
+  access_token  text,
+  refresh_token text,
+  expires_at    timestamptz,
+  metadata      jsonb default '{}',
+  created_at    timestamptz default now(),
+  updated_at    timestamptz default now(),
+  unique (user_id, provider)
+);
+
+alter table tasks add column if not exists gcal_event_id text;
+
+-- RLS: пользователь видит и удаляет только свои интеграции; INSERT/UPDATE — только через service_role с сервера
+alter table user_integrations enable row level security;
+drop policy if exists "user_integrations_select_own" on user_integrations;
+drop policy if exists "user_integrations_delete_own" on user_integrations;
+create policy "user_integrations_select_own" on user_integrations
+  for select to authenticated using (user_id = auth.uid());
+create policy "user_integrations_delete_own" on user_integrations
+  for delete to authenticated using (user_id = auth.uid());
+```
+
+**Google Cloud OAuth setup:**
+
+1. [console.cloud.google.com](https://console.cloud.google.com) → создать проект (или взять существующий)
+2. **APIs & Services → Library** → найти **Google Calendar API** → **Enable**
+3. **APIs & Services → OAuth consent screen** → External → заполнить приложение (название VoiceTask, support email). Scopes — добавить `auth/calendar.events`. В Test users — свой email пока приложение в тестовом режиме (или сразу publish для production)
+4. **APIs & Services → Credentials → Create Credentials → OAuth client ID**:
+   - Type: **Web application**
+   - Authorized redirect URIs: `https://voicetask-cfo.vercel.app/api/google-calendar?action=callback` (плюс `http://localhost:5173/api/google-calendar?action=callback` для локальной разработки)
+5. Скопировать **Client ID** и **Client Secret**
+6. В Vercel Environment Variables добавить:
+   - `GOOGLE_CLIENT_ID` (без VITE-префикса — server-only)
+   - `GOOGLE_CLIENT_SECRET` (server-only)
+7. Redeploy
+
 ### 1.3. RLS политики (если ещё не настроены)
 
 Минимальные политики для работы приложения:
@@ -156,6 +200,8 @@ Vercel автоматически определит Vite. `vercel.json` уже 
 | `VITE_APP_URL`               | `https://voicetask-cfo.vercel.app` | `emailRedirectTo` для signup/reset |
 | `SUPABASE_SERVICE_ROLE_KEY`  | `eyJ...`                 | `api/admin.js` (server)   |
 | `ANTHROPIC_API_KEY`          | `sk-ant-...`             | `api/tasks.js` (голос)    |
+| `GOOGLE_CLIENT_ID` *(опц.)*  | `xxx.apps.googleusercontent.com` | `api/google-calendar.js` |
+| `GOOGLE_CLIENT_SECRET` *(опц.)* | `GOCSPX-...`         | `api/google-calendar.js` |
 
 > ⚠️ `VITE_*` переменные попадают в bundle и видны в браузере. Используй только публичный `anon` ключ.
 > `SUPABASE_SERVICE_ROLE_KEY` без префикса `VITE_` — он остаётся на сервере.

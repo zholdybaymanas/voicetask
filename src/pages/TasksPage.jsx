@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { supabase, supabaseRest, supabasePatch, getCurrentUser } from '../lib/supabase'
+import { syncTaskToGoogleCalendar } from '../lib/googleCalendar'
 import { useAuth } from '../hooks/useAuth'
 import { descriptionPreview } from '../lib/description'
 import TaskDetailDrawer from '../components/TaskDetailDrawer'
@@ -143,7 +144,9 @@ export default function TasksPage() {
     if (error) {
       console.error('[TasksPage] quickToggleDone:', error)
       setTasks(prev => prev.map(t => t.id === task.id ? { ...t, status: task.status } : t))
+      return
     }
+    syncTaskToGoogleCalendar(task.id)
   }
 
   async function updateStatus(id, status) {
@@ -155,7 +158,9 @@ export default function TasksPage() {
     if (error) {
       console.error('[TasksPage] updateStatus:', error)
       setTasks(curr => curr.map(t => t.id === id ? { ...t, status: prev.status } : t))
+      return
     }
+    syncTaskToGoogleCalendar(id)
   }
 
   function applyTaskUpdate(updated) {
@@ -305,7 +310,7 @@ export default function TasksPage() {
                     <TaskTitle task={task} isDone={isDone} />
                     <ProjectBadge project={task.projects} />
                     <PersonBadge user={personUser} />
-                    <DueDate date={task.due_date} isOverdue={isOverdue} />
+                    <DueDate date={task.due_date} isOverdue={isOverdue} gcalSynced={!!task.gcal_event_id} />
                     <StatusSelect value={task.status} onChange={s => updateStatus(task.id, s)} />
                   </div>
 
@@ -395,10 +400,20 @@ function PersonBadge({ user, prefix }) {
   )
 }
 
-function DueDate({ date, isOverdue }) {
+function DueDate({ date, isOverdue, gcalSynced }) {
   if (!date) return <span className="text-muted text-sm">—</span>
   return (
-    <span className={`text-xs ${isOverdue ? 'text-red-500 font-medium' : 'text-muted'}`}>
+    <span className={`inline-flex items-center gap-1 text-xs ${isOverdue ? 'text-red-500 font-medium' : 'text-muted'}`}>
+      {gcalSynced && (
+        <svg
+          className="w-3 h-3 text-primary"
+          fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}
+          title="Синхронизировано с Google Calendar"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round"
+            d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75" />
+        </svg>
+      )}
       {new Date(date + 'T00:00:00').toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })}
     </span>
   )
@@ -454,8 +469,12 @@ function AddTaskModal({ projects, team, onClose, onCreated }) {
       return setErr(result.error.message ?? 'Ошибка создания задачи')
     }
 
-    // Notify the assignee if it's not self.
     const created = Array.isArray(result.data) ? result.data[0] : result.data
+
+    // Best-effort: sync to Google Calendar if user has connected it.
+    if (created?.id) syncTaskToGoogleCalendar(created.id)
+
+    // Notify the assignee if it's not self.
     if (finalAssignee && finalAssignee !== user?.id && created?.id) {
       const notifRes = await supabaseRest('notifications', {
         method: 'POST',

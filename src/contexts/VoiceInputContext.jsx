@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react'
 import { supabaseRest, getCurrentUser } from '../lib/supabase'
+import { syncTaskToGoogleCalendar } from '../lib/googleCalendar'
 
 const Ctx = createContext(null)
 
@@ -218,6 +219,7 @@ export function VoiceInputProvider({ children }) {
     }
 
     window.dispatchEvent(new CustomEvent('voiceTaskCreated'))
+    if (createdTask?.id) syncTaskToGoogleCalendar(createdTask.id)
     return createdTask
   }
 

@@ -9,6 +9,7 @@ import {
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { supabase, supabaseRest, supabasePatch, getCurrentUser } from '../lib/supabase'
+import { syncTaskToGoogleCalendar } from '../lib/googleCalendar'
 import { useAuth } from '../hooks/useAuth'
 import { descriptionPreview } from '../lib/description'
 import TaskDetailDrawer from '../components/TaskDetailDrawer'
@@ -180,6 +181,9 @@ export default function KanbanPage({ projectFilter = null } = {}) {
       return
     }
 
+    // Re-sync to Google Calendar so done-status updates with [✓] prefix.
+    if (fromStatus !== toStatus) syncTaskToGoogleCalendar(task.id)
+
     // Cross-column moves notify the creator on review / done (only delegated tasks).
     const crossColumn = fromStatus !== toStatus
     if (crossColumn && task.created_by && task.assignee_id && task.created_by !== task.assignee_id) {
@@ -227,7 +231,10 @@ export default function KanbanPage({ projectFilter = null } = {}) {
       return
     }
     const created = Array.isArray(result.data) ? result.data[0] : result.data
-    if (created) setTasks(prev => [created, ...prev])
+    if (created) {
+      setTasks(prev => [created, ...prev])
+      if (created.id) syncTaskToGoogleCalendar(created.id)
+    }
   }
 
   const activeTask = activeId ? tasks.find(t => t.id === activeId) : null

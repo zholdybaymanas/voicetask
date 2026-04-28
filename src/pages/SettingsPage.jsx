@@ -1,7 +1,13 @@
 import { useState, useEffect } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { useTheme } from '../contexts/ThemeContext'
 import { supabase, supabasePatch } from '../lib/supabase'
+import {
+  startGoogleCalendarConnect,
+  getGoogleCalendarStatus,
+  disconnectGoogleCalendar,
+} from '../lib/googleCalendar'
 
 const APP_VERSION = '0.1.0'
 const SUPPORT_EMAIL = 'support@voicetask.app'
@@ -28,6 +34,10 @@ export default function SettingsPage() {
 
       <Section title="Аккаунт" subtitle="Имя, email и пароль">
         <AccountForm />
+      </Section>
+
+      <Section title="Интеграции" subtitle="Внешние сервисы">
+        <IntegrationsSettings />
       </Section>
 
       <Section title="Уведомления" subtitle="Push, отчёты и звуки">
@@ -259,6 +269,120 @@ function NotificationsSettings() {
         value={sound}
         onChange={setSound}
       />
+    </div>
+  )
+}
+
+// ───────────────────────────── Integrations ─────────────────────────────
+
+function IntegrationsSettings() {
+  const { user } = useAuth()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const [status, setStatus] = useState(null) // {connected, email}
+  const [loading, setLoading] = useState(true)
+  const [busy, setBusy] = useState(false)
+  const [flash, setFlashMsg] = useState(null)
+
+  function showFlash(kind, text) {
+    setFlashMsg({ kind, text })
+    setTimeout(() => setFlashMsg(null), 4000)
+  }
+
+  async function refresh() {
+    setLoading(true)
+    const s = await getGoogleCalendarStatus()
+    setStatus(s)
+    setLoading(false)
+  }
+
+  useEffect(() => { refresh() }, [user?.id])
+
+  // Pick up post-OAuth redirect: /settings?gcal=connected | error
+  useEffect(() => {
+    const r = searchParams.get('gcal')
+    if (!r) return
+    if (r === 'connected') showFlash('ok', 'Google Calendar подключён')
+    else showFlash('err', `Не удалось подключить Google Calendar: ${searchParams.get('reason') ?? r}`)
+    // Clean the URL
+    const next = new URLSearchParams(searchParams)
+    next.delete('gcal')
+    next.delete('reason')
+    setSearchParams(next, { replace: true })
+    refresh()
+  }, [searchParams])
+
+  async function connect() {
+    if (!user?.id) return
+    startGoogleCalendarConnect(user.id) // full-page redirect
+  }
+
+  async function disconnect() {
+    if (!confirm('Отключить Google Calendar? События в календаре останутся.')) return
+    setBusy(true)
+    const ok = await disconnectGoogleCalendar()
+    setBusy(false)
+    if (ok) {
+      showFlash('ok', 'Google Calendar отключён')
+      refresh()
+    } else {
+      showFlash('err', 'Не удалось отключить')
+    }
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-start gap-3">
+        <div className="w-10 h-10 rounded-lg bg-hover flex items-center justify-center shrink-0">
+          {/* Calendar icon */}
+          <svg className="w-5 h-5 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+            <path strokeLinecap="round" strokeLinejoin="round"
+              d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5" />
+          </svg>
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-medium text-text">Google Calendar</p>
+          <p className="text-xs text-muted mt-0.5">
+            {loading
+              ? 'Загрузка…'
+              : status?.connected
+                ? `Подключено${status.email ? ' · ' + status.email : ''}`
+                : 'Не подключено'}
+          </p>
+          <p className="text-xs text-muted mt-1">
+            Задачи с дедлайном автоматически попадают в ваш календарь.
+          </p>
+        </div>
+        {!loading && (
+          status?.connected ? (
+            <button
+              type="button"
+              onClick={disconnect}
+              disabled={busy}
+              className="btn-secondary text-xs shrink-0"
+            >
+              {busy ? '…' : 'Отключить'}
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={connect}
+              className="btn-primary text-xs shrink-0"
+            >
+              Подключить
+            </button>
+          )
+        )}
+      </div>
+
+      {flash && (
+        <p className={`text-xs px-3 py-2 rounded-lg break-words ${
+          flash.kind === 'ok'
+            ? 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-500'
+            : 'bg-red-500/10 border border-red-500/20 text-red-400'
+        }`}>
+          {flash.text}
+        </p>
+      )}
     </div>
   )
 }

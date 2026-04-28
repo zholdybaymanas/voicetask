@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { supabasePatch, supabaseDelete } from '../lib/supabase'
+import { syncTaskToGoogleCalendar } from '../lib/googleCalendar'
 import { parseDescription, serializeDescription, newSubtaskId } from '../lib/description'
 
 export default function TaskDetailDrawer({ task, projects, team, onClose, onUpdated, onDeleted }) {
@@ -55,6 +56,11 @@ export default function TaskDetailDrawer({ task, projects, team, onClose, onUpda
     }
     const updated = Array.isArray(result.data) ? result.data[0] : result.data
     if (updated) onUpdated?.(updated)
+
+    // Re-sync to Google Calendar when fields visible there changed.
+    const syncFields = ['title', 'status', 'due_date']
+    if (syncFields.some(f => f in body)) syncTaskToGoogleCalendar(task.id)
+
     return updated
   }
 
@@ -157,6 +163,14 @@ export default function TaskDetailDrawer({ task, projects, team, onClose, onUpda
         {/* Header */}
         <header className="flex items-center gap-2 px-4 sm:px-5 h-14 border-b border-border shrink-0">
           <span className="text-xs text-muted">Задача</span>
+          {task.gcal_event_id && (
+            <span title="Синхронизировано с Google Calendar" className="text-primary">
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                <path strokeLinecap="round" strokeLinejoin="round"
+                  d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5" />
+              </svg>
+            </span>
+          )}
           <div className="flex-1" />
           {saving && (
             <span className="text-[11px] text-muted flex items-center gap-1.5">
