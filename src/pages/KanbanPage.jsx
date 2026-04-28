@@ -14,10 +14,10 @@ import { descriptionPreview } from '../lib/description'
 import TaskDetailDrawer from '../components/TaskDetailDrawer'
 
 const COLUMNS = [
-  { id: 'pending',     label: 'Входящие',    shortLabel: 'Входящие', accent: 'bg-slate-400',   accentText: 'text-slate-400' },
-  { id: 'in_progress', label: 'В работе',    shortLabel: 'В работе', accent: 'bg-amber-400',   accentText: 'text-amber-400' },
-  { id: 'review',      label: 'На проверке', shortLabel: 'Проверка', accent: 'bg-violet-400',  accentText: 'text-violet-400' },
-  { id: 'done',        label: 'Готово',      shortLabel: 'Готово',   accent: 'bg-emerald-500', accentText: 'text-emerald-500' },
+  { id: 'pending',     label: 'Новая',       shortLabel: 'Новая',     accent: 'bg-slate-400',   accentText: 'text-slate-400' },
+  { id: 'in_progress', label: 'В работе',    shortLabel: 'В работе',  accent: 'bg-amber-400',   accentText: 'text-amber-400' },
+  { id: 'review',      label: 'На проверке', shortLabel: 'Проверка',  accent: 'bg-violet-400',  accentText: 'text-violet-400' },
+  { id: 'done',        label: 'Выполнена',   shortLabel: 'Выполнена', accent: 'bg-emerald-500', accentText: 'text-emerald-500' },
 ]
 
 const PRIORITY_DOT = { high: 'bg-red-500', medium: 'bg-amber-400', low: 'bg-muted' }

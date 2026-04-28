@@ -3,10 +3,10 @@ import { supabaseRest } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 
 const STATUS_LABEL = {
-  pending:     'Входящие',
+  pending:     'Новая',
   in_progress: 'В работе',
   review:      'На проверке',
-  done:        'Готово',
+  done:        'Выполнена',
 }
 
 const PRIORITY_LABEL = { low: 'Низкий', medium: 'Средний', high: 'Высокий' }
@@ -179,10 +179,10 @@ export default function ReportsPage() {
           <label className="block text-xs text-muted mb-1">Статус</label>
           <select className="input w-auto text-sm" value={fStatus} onChange={e => setFStatus(e.target.value)}>
             <option value="">Все</option>
-            <option value="pending">Входящие</option>
+            <option value="pending">Новая</option>
             <option value="in_progress">В работе</option>
             <option value="review">На проверке</option>
-            <option value="done">Готово</option>
+            <option value="done">Выполнена</option>
           </select>
         </div>
         <div>
@@ -240,10 +240,10 @@ export default function ReportsPage() {
         {/* Totals */}
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2 mb-4">
           <Totals label="Всего"        value={totals.total}        color="bg-slate-100 text-slate-900" />
-          <Totals label="Входящие"     value={totals.pending}      color="bg-slate-100 text-slate-700" />
+          <Totals label="Новые"        value={totals.pending}      color="bg-slate-100 text-slate-700" />
           <Totals label="В работе"     value={totals.in_progress}  color="bg-blue-50 text-blue-700" />
           <Totals label="На проверке"  value={totals.review}       color="bg-violet-50 text-violet-700" />
-          <Totals label="Готово"       value={totals.done}         color="bg-emerald-50 text-emerald-700" />
+          <Totals label="Выполнено"    value={totals.done}         color="bg-emerald-50 text-emerald-700" />
           <Totals label="Просрочено"   value={totals.overdue}      color="bg-red-50 text-red-700" />
         </div>
 

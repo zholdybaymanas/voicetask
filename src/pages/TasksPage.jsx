@@ -7,10 +7,10 @@ import TaskCheck from '../components/TaskCheck'
 
 const STATUS_OPTIONS = [
   { value: '',            label: 'Все статусы' },
-  { value: 'pending',     label: 'Входящие' },
+  { value: 'pending',     label: 'Новая' },
   { value: 'in_progress', label: 'В работе' },
   { value: 'review',      label: 'На проверке' },
-  { value: 'done',        label: 'Готово' },
+  { value: 'done',        label: 'Выполнена' },
 ]
 const STATUS_BADGE = {
   pending:     'bg-hover text-muted',
@@ -353,10 +353,10 @@ function StatusSelect({ value, onChange, compact = false }) {
       onClick={e => e.stopPropagation()}
       className={`text-xs rounded-full px-2.5 py-1 border-0 outline-none cursor-pointer appearance-none text-center ${compact ? 'shrink-0' : 'w-full'} ${STATUS_BADGE[normalized]}`}
     >
-      <option value="pending">Входящие</option>
+      <option value="pending">Новая</option>
       <option value="in_progress">В работе</option>
       <option value="review">На проверке</option>
-      <option value="done">Готово</option>
+      <option value="done">Выполнена</option>
     </select>
   )
 }
@@ -464,10 +464,10 @@ function AddTaskModal({ projects, team, onClose, onCreated }) {
             <div>
               <label className="block text-xs font-medium text-text mb-1">Статус</label>
               <select className="input" value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value }))}>
-                <option value="pending">Входящие</option>
+                <option value="pending">Новая</option>
                 <option value="in_progress">В работе</option>
                 <option value="review">На проверке</option>
-                <option value="done">Готово</option>
+                <option value="done">Выполнена</option>
               </select>
             </div>
           </div>

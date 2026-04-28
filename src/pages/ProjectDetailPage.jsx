@@ -9,14 +9,14 @@ import KanbanPage from './KanbanPage'
 
 const STATUS_OPTIONS = [
   { value: '',            label: 'Все' },
-  { value: 'pending',     label: 'Входящие' },
+  { value: 'pending',     label: 'Новая' },
   { value: 'in_progress', label: 'В работе' },
   { value: 'review',      label: 'На проверке' },
-  { value: 'done',        label: 'Готово' },
+  { value: 'done',        label: 'Выполнена' },
 ]
 
 const STATUS_LABEL = {
-  pending: 'Входящие', in_progress: 'В работе', review: 'На проверке', done: 'Готово',
+  pending: 'Новая', in_progress: 'В работе', review: 'На проверке', done: 'Выполнена',
 }
 const PRIORITY_DOT = { high: 'bg-red-500', medium: 'bg-amber-400', low: 'bg-muted' }
 
@@ -36,7 +36,8 @@ export default function ProjectDetailPage() {
   const [allProjects, setAllProjects] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError]     = useState(null)
-  const [filterStatus, setFilterStatus] = useState('')
+  const [filterStatus,   setFilterStatus]   = useState('')
+  const [filterAssignee, setFilterAssignee] = useState('')
   const [selectedId, setSelectedId] = useState(null)
   const [view, setView] = useState('tasks') // 'tasks' | 'kanban'
 
@@ -103,9 +104,18 @@ export default function ProjectDetailPage() {
   const teamById = useMemo(() => Object.fromEntries(team.map(u => [u.id, u])), [team])
 
   const filtered = useMemo(() => {
-    if (!filterStatus) return tasks
-    return tasks.filter(t => normStatus(t.status) === filterStatus)
-  }, [tasks, filterStatus])
+    return tasks.filter(t => {
+      if (filterStatus   && normStatus(t.status) !== filterStatus) return false
+      if (filterAssignee && t.assignee_id        !== filterAssignee) return false
+      return true
+    })
+  }, [tasks, filterStatus, filterAssignee])
+
+  // Only show people who have at least one task in this project
+  const projectAssignees = useMemo(() => {
+    const ids = new Set(tasks.map(t => t.assignee_id).filter(Boolean))
+    return team.filter(u => ids.has(u.id))
+  }, [tasks, team])
 
   const counts = useMemo(() => {
     const c = { total: tasks.length, pending: 0, in_progress: 0, review: 0, done: 0 }
@@ -158,10 +168,10 @@ export default function ProjectDetailPage() {
             {/* Stats row */}
             <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 mt-4">
               <Stat label="Всего"        value={counts.total} />
-              <Stat label="Входящие"     value={counts.pending} />
+              <Stat label="Новые"        value={counts.pending} />
               <Stat label="В работе"     value={counts.in_progress} />
               <Stat label="На проверке"  value={counts.review} />
-              <Stat label="Готово"       value={counts.done} />
+              <Stat label="Выполнено"    value={counts.done} />
             </div>
 
             {counts.total > 0 && (
@@ -209,26 +219,54 @@ export default function ProjectDetailPage() {
       ) : (
       <>
 
-      {/* Status filter */}
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="text-sm text-muted">Статус:</span>
-        <div className="flex flex-wrap gap-1 bg-hover rounded-lg p-1">
-          {STATUS_OPTIONS.map(o => (
-            <button
-              key={o.value || 'all'}
-              type="button"
-              onClick={() => setFilterStatus(o.value)}
-              className={`text-xs font-medium py-1 px-2.5 rounded-md transition-colors ${
-                filterStatus === o.value
-                  ? 'bg-card text-text shadow-card'
-                  : 'text-muted hover:text-text'
-              }`}
-            >
-              {o.label}
-            </button>
-          ))}
+      {/* Filters */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-muted">Статус:</span>
+          <div className="flex flex-wrap gap-1 bg-hover rounded-lg p-1">
+            {STATUS_OPTIONS.map(o => (
+              <button
+                key={o.value || 'all'}
+                type="button"
+                onClick={() => setFilterStatus(o.value)}
+                className={`text-xs font-medium py-1 px-2.5 rounded-md transition-colors ${
+                  filterStatus === o.value
+                    ? 'bg-card text-text shadow-card'
+                    : 'text-muted hover:text-text'
+                }`}
+              >
+                {o.label}
+              </button>
+            ))}
+          </div>
         </div>
-        <span className="text-xs text-muted ml-1">{filtered.length}</span>
+
+        {projectAssignees.length > 0 && (
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-muted">Исполнитель:</span>
+            <select
+              className="input w-auto text-xs py-1.5"
+              value={filterAssignee}
+              onChange={e => setFilterAssignee(e.target.value)}
+            >
+              <option value="">Все</option>
+              {projectAssignees.map(u => (
+                <option key={u.id} value={u.id}>{u.full_name || u.email}</option>
+              ))}
+            </select>
+          </div>
+        )}
+
+        {(filterStatus || filterAssignee) && (
+          <button
+            className="btn-secondary text-xs px-2.5 py-1"
+            onClick={() => { setFilterStatus(''); setFilterAssignee('') }}
+          >
+            Сбросить
+          </button>
+        )}
+
+        <span className="text-xs text-muted ml-auto">{filtered.length}</span>
       </div>
 
       {/* Task list */}
@@ -236,7 +274,9 @@ export default function ProjectDetailPage() {
         {filtered.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-14 text-center">
             <p className="text-sm text-muted">
-              {filterStatus ? `Нет задач со статусом «${STATUS_LABEL[filterStatus]}»` : 'В этом проекте пока нет задач'}
+              {filterStatus || filterAssignee
+                ? 'Нет задач по выбранным фильтрам'
+                : 'В этом проекте пока нет задач'}
             </p>
           </div>
         ) : (

@@ -192,10 +192,10 @@ export default function TaskDetailDrawer({ task, projects, team, onClose, onUpda
           <div className="grid grid-cols-[100px_1fr] gap-y-3 gap-x-3 text-sm items-center">
             <label className="text-xs text-muted">Статус</label>
             <select className="input" value={status} onChange={e => changeStatus(e.target.value)}>
-              <option value="pending">Входящие</option>
+              <option value="pending">Новая</option>
               <option value="in_progress">В работе</option>
               <option value="review">На проверке</option>
-              <option value="done">Готово</option>
+              <option value="done">Выполнена</option>
             </select>
 
             <label className="text-xs text-muted">Исполнитель</label>
