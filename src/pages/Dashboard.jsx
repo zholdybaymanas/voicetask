@@ -391,7 +391,11 @@ function TaskRow({ task, today, team, userId, onOpen, onToggle }) {
 
   return (
     <div
-      onClick={onOpen}
+      onClick={(e) => {
+        const rect = e.currentTarget.getBoundingClientRect()
+        if (e.clientX - rect.left < 48) return
+        onOpen()
+      }}
       className={`flex items-center gap-3 px-4 py-3 hover:bg-hover transition-colors group cursor-pointer ${isDone ? 'opacity-50' : ''}`}
     >
       <TaskCheck done={isDone} isOverdue={isOverdue} onToggle={onToggle} />

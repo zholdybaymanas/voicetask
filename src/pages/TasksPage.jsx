@@ -234,7 +234,11 @@ export default function TasksPage() {
                 <div
                   key={task.id}
                   className={`px-4 py-3 hover:bg-hover transition-colors cursor-pointer ${isDone ? 'opacity-50' : ''}`}
-                  onClick={() => setSelectedId(task.id)}
+                  onClick={(e) => {
+                    const rect = e.currentTarget.getBoundingClientRect()
+                    if (e.clientX - rect.left < 48) return  // checkbox dead-zone
+                    setSelectedId(task.id)
+                  }}
                 >
                   <div className="hidden md:grid grid-cols-[24px_1fr_160px_140px_110px_130px] gap-4 items-center">
                     <TaskCheck done={isDone} isOverdue={isOverdue} onToggle={() => quickToggleDone(task)} />

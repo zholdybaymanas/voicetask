@@ -221,7 +221,11 @@ export default function ProjectDetailPage() {
               return (
                 <div
                   key={task.id}
-                  onClick={() => setSelectedId(task.id)}
+                  onClick={(e) => {
+                    const rect = e.currentTarget.getBoundingClientRect()
+                    if (e.clientX - rect.left < 48) return
+                    setSelectedId(task.id)
+                  }}
                   className={`flex items-center gap-3 px-4 py-3 hover:bg-hover transition-colors cursor-pointer ${isDone ? 'opacity-50' : ''}`}
                 >
                   <TaskCheck done={isDone} isOverdue={isOverdue} onToggle={() => quickToggleDone(task)} />
