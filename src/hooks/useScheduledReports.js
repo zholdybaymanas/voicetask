@@ -1,5 +1,4 @@
 import { useEffect } from 'react'
-import { supabaseRest } from '../lib/supabase'
 
 const DAILY_KEY  = 'voicetask:lastDailyReport'   // value: YYYY-MM-DD
 const WEEKLY_KEY = 'voicetask:lastWeeklyReport'  // value: YYYY-Wnn
@@ -26,49 +25,14 @@ function weekKey(d = new Date()) {
   return `${t.getUTCFullYear()}-W${String(weekNo).padStart(2, '0')}`
 }
 
-function isoFromDate(date) {
-  return date.toISOString()
-}
-
-function startOfDay(d = new Date()) {
-  const x = new Date(d)
-  x.setHours(0, 0, 0, 0)
-  return x
-}
-function endOfDay(d = new Date()) {
-  const x = new Date(d)
-  x.setHours(23, 59, 59, 999)
-  return x
-}
-function mondayOfWeek(d = new Date()) {
-  const x = new Date(d)
-  const dow = (x.getDay() + 6) % 7 // 0 = Monday
-  x.setDate(x.getDate() - dow)
-  x.setHours(0, 0, 0, 0)
-  return x
-}
-
-async function countTasks(userId, filters) {
-  const baseFilter = `or=(assignee_id.eq.${userId},created_by.eq.${userId})`
-  const res = await supabaseRest('tasks', {
-    select: 'id',
-    filters: [baseFilter, ...filters],
-  })
-  if (res.error) return 0
-  return res.data?.length ?? 0
-}
-
-async function showDailyReport(userId) {
+// Notification body is intentionally a teaser — actual numbers are
+// shown on the destination page after click. This way an "empty"
+// weekend / holiday looks normal instead of awkwardly saying 0/0.
+function showDailyReport() {
   const today = todayStr()
-  const start = isoFromDate(startOfDay())
-  const end   = isoFromDate(endOfDay())
-
-  const created = await countTasks(userId, [`created_at=gte.${start}`, `created_at=lte.${end}`])
-  const done    = await countTasks(userId, [`status=eq.done`, `updated_at=gte.${start}`, `updated_at=lte.${end}`])
-
   try {
-    const notif = new Notification('Итоги дня · VoiceTask', {
-      body: `Создано ${created}, выполнено ${done}`,
+    const notif = new Notification('VoiceTask', {
+      body: 'Ваш отчёт за день готов',
       icon: '/icons/icon-192x192.svg',
       tag:  `daily-${today}`,
     })
@@ -82,18 +46,11 @@ async function showDailyReport(userId) {
   }
 }
 
-async function showWeeklyReport(userId) {
-  const wk    = weekKey()
-  const start = isoFromDate(mondayOfWeek())
-  const end   = isoFromDate(endOfDay())
-
-  const created    = await countTasks(userId, [`created_at=gte.${start}`, `created_at=lte.${end}`])
-  const done       = await countTasks(userId, [`status=eq.done`, `updated_at=gte.${start}`, `updated_at=lte.${end}`])
-  const inProgress = await countTasks(userId, [`status=eq.in_progress`])
-
+function showWeeklyReport() {
+  const wk = weekKey()
   try {
-    const notif = new Notification('Итоги недели · VoiceTask', {
-      body: `Создано ${created}, выполнено ${done}, в работе ${inProgress}`,
+    const notif = new Notification('VoiceTask', {
+      body: 'Ваш отчёт за неделю готов',
       icon: '/icons/icon-192x192.svg',
       tag:  `weekly-${wk}`,
     })
@@ -107,22 +64,22 @@ async function showWeeklyReport(userId) {
   }
 }
 
-function maybeShowDaily(userId) {
+function maybeShowDaily() {
   const now = new Date()
   if (now.getHours() < DAILY_HOUR) return false
   const today = todayStr(now)
   if (localStorage.getItem(DAILY_KEY) === today) return false
-  showDailyReport(userId)
+  showDailyReport()
   return true
 }
 
-function maybeShowWeekly(userId) {
+function maybeShowWeekly() {
   const now = new Date()
   if (now.getDay() !== WEEKLY_DOW) return false
   if (now.getHours() < WEEKLY_HOUR) return false
   const wk = weekKey(now)
   if (localStorage.getItem(WEEKLY_KEY) === wk) return false
-  showWeeklyReport(userId)
+  showWeeklyReport()
   return true
 }
 
@@ -137,15 +94,15 @@ export function useScheduledReports(userId) {
     const start = () => {
       if (Notification.permission !== 'granted') return
       // Check immediately on app load
-      maybeShowDaily(userId)
-      maybeShowWeekly(userId)
+      maybeShowDaily()
+      maybeShowWeekly()
 
       // Schedule today's 18:00 if it hasn't passed yet
       const now = new Date()
       const today18 = new Date(now)
       today18.setHours(DAILY_HOUR, 0, 0, 0)
       if (now < today18) {
-        dailyTimer = setTimeout(() => maybeShowDaily(userId), today18 - now)
+        dailyTimer = setTimeout(() => maybeShowDaily(), today18 - now)
       }
 
       // Schedule next Friday 17:00 if before that this week
@@ -154,7 +111,7 @@ export function useScheduledReports(userId) {
       nextFriday.setDate(now.getDate() + (daysToFriday || (now.getHours() < WEEKLY_HOUR ? 0 : 7)))
       nextFriday.setHours(WEEKLY_HOUR, 0, 0, 0)
       if (nextFriday > now) {
-        weeklyTimer = setTimeout(() => maybeShowWeekly(userId), nextFriday - now)
+        weeklyTimer = setTimeout(() => maybeShowWeekly(), nextFriday - now)
       }
     }
 
