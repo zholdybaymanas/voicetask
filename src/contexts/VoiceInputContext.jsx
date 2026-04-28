@@ -14,9 +14,13 @@ export function VoiceInputProvider({ children }) {
   const [team,     setTeam]     = useState([])
   const [pendingTask, setPendingTask] = useState(null)
 
-  const recognitionRef = useRef(null)
-  const finalRef       = useRef('')
-  const toastTimerRef  = useRef(null)
+  const recognitionRef    = useRef(null)
+  const finalRef          = useRef('')
+  const toastTimerRef     = useRef(null)
+  // True between startListening() and stopListening() — used to abort
+  // an in-flight start if the user releases before getUserMedia resolves
+  // (touch hold-to-record).
+  const wantsListeningRef = useRef(false)
 
   // Load projects/team once for parser context
   useEffect(() => {
@@ -38,19 +42,71 @@ export function VoiceInputProvider({ children }) {
     toastTimerRef.current = setTimeout(() => setToast(null), 3500)
   }
 
-  const startListening = useCallback(() => {
+  const startListening = useCallback(async () => {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition
+
+    // iOS detection — Safari uses webkit-prefixed API and behaves
+    // differently from desktop Chrome. PWA standalone mode on iOS
+    // sometimes lacks SpeechRecognition entirely.
+    const ua = navigator.userAgent || ''
+    const isIOS = /iPad|iPhone|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
+    const isStandalone = window.navigator.standalone === true
+    const isSafari = /Safari/.test(ua) && !/Chrome|CriOS|FxiOS|EdgiOS/.test(ua)
+
     if (!SR) {
-      setErrorMsg('Браузер не поддерживает распознавание речи. Используйте Chrome или Edge.')
+      if (isIOS && isStandalone) {
+        setErrorMsg('Распознавание речи в iOS-PWA не поддерживается. Откройте сайт в Safari или используйте Chrome.')
+      } else if (isIOS) {
+        setErrorMsg('Обновите iOS до 14.5 или новее, либо откройте в Safari.')
+      } else {
+        setErrorMsg('Браузер не поддерживает распознавание речи. Используйте Chrome или Edge.')
+      }
       setState(S.ERROR)
       return
     }
-    if (recognitionRef.current) return // already listening
+    if (recognitionRef.current || wantsListeningRef.current) return // already listening / starting
+    wantsListeningRef.current = true
+
+    // Pre-flight: explicitly request microphone via getUserMedia.
+    // On iOS this triggers the permission prompt that SpeechRecognition
+    // does NOT trigger on its own. If denied here, we surface a clear
+    // message instead of a silent failure.
+    try {
+      if (navigator.mediaDevices?.getUserMedia) {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+        // We only needed permission — release the stream immediately so
+        // SpeechRecognition can claim the microphone itself.
+        stream.getTracks().forEach(t => t.stop())
+      }
+    } catch (err) {
+      console.error('[Voice] getUserMedia:', err)
+      let msg = 'Доступ к микрофону запрещён.'
+      if (err.name === 'NotAllowedError') {
+        msg = isIOS && isSafari
+          ? 'Разрешите микрофон: aA → «Настройки веб-сайта» → Микрофон → Разрешить'
+          : 'Разрешите микрофон в настройках браузера для этого сайта.'
+      } else if (err.name === 'NotFoundError') {
+        msg = 'Микрофон не найден на устройстве.'
+      } else if (err.name === 'NotReadableError') {
+        msg = 'Микрофон занят другим приложением.'
+      }
+      wantsListeningRef.current = false
+      setErrorMsg(msg)
+      setState(S.ERROR)
+      return
+    }
+
+    // User may have released the button (mobile hold-to-record) while
+    // we were waiting for the permission prompt — don't start in that case.
+    if (!wantsListeningRef.current) {
+      setState(S.IDLE)
+      return
+    }
 
     const rec = new SR()
     recognitionRef.current = rec
     rec.lang = 'ru-RU'
-    rec.continuous     = true
+    rec.continuous     = !isIOS // iOS Safari is unreliable with continuous mode
     rec.interimResults = true
     rec.maxAlternatives = 1
 
@@ -73,10 +129,12 @@ export function VoiceInputProvider({ children }) {
       // 'no-speech' fires when nothing was said — also non-fatal
       if (e.error === 'aborted' || e.error === 'no-speech') return
       const msgs = {
-        'not-allowed': 'Нет доступа к микрофону — разрешите его в браузере',
-        'network':     'Ошибка сети при распознавании',
+        'not-allowed':         'Нет доступа к микрофону — разрешите его в браузере',
+        'service-not-allowed': 'Сервис распознавания заблокирован браузером',
+        'network':             'Ошибка сети при распознавании',
+        'audio-capture':       'Не удалось захватить звук с микрофона',
       }
-      setErrorMsg(msgs[e.error] ?? `Ошибка: ${e.error}`)
+      setErrorMsg(msgs[e.error] ?? `Ошибка распознавания: ${e.error}`)
       setState(S.ERROR)
     }
 
@@ -101,6 +159,7 @@ export function VoiceInputProvider({ children }) {
   }, [])
 
   const stopListening = useCallback(() => {
+    wantsListeningRef.current = false
     if (recognitionRef.current) {
       try { recognitionRef.current.stop() } catch {}
     }
@@ -228,6 +287,7 @@ export function VoiceInputProvider({ children }) {
   }
 
   const reset = useCallback(() => {
+    wantsListeningRef.current = false
     if (recognitionRef.current) {
       try { recognitionRef.current.stop() } catch {}
     }
