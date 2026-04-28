@@ -38,7 +38,7 @@ export default function TasksPage() {
   const { user, profile } = useAuth()
   const isAdmin = profile?.role === 'admin'
 
-  const [tab, setTab] = useState('inbox') // 'inbox' | 'sent' | 'all'
+  const [tab, setTab] = useState('all') // 'all' | 'inbox' | 'sent'
   const [tasks, setTasks]               = useState([])
   const [projects, setProjects]         = useState([])
   const [team, setTeam]                 = useState([])
@@ -50,10 +50,8 @@ export default function TasksPage() {
   const [addOpen, setAddOpen]           = useState(false)
   const [selectedId, setSelectedId]     = useState(null)
 
-  // Reset tab if user lost admin and was on 'all'
-  useEffect(() => {
-    if (tab === 'all' && !isAdmin) setTab('inbox')
-  }, [isAdmin, tab])
+  // (Все three tabs are available to every authed user — RLS already
+  // restricts the "Все" tab to tasks the current user has access to.)
 
   useEffect(() => {
     if (!user?.id) return
@@ -139,9 +137,9 @@ export default function TasksPage() {
   const selectedTask = tasks.find(t => t.id === selectedId) ?? null
 
   const tabs = [
+    { id: 'all',   label: 'Все' },
     { id: 'inbox', label: 'Входящие' },
     { id: 'sent',  label: 'Отправленные' },
-    ...(isAdmin ? [{ id: 'all', label: 'Все' }] : []),
   ]
 
   return (

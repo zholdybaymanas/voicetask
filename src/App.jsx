@@ -7,6 +7,7 @@ import Dashboard from './pages/Dashboard'
 import KanbanPage from './pages/KanbanPage'
 import TasksPage from './pages/TasksPage'
 import ProjectsPage from './pages/ProjectsPage'
+import ProjectDetailPage from './pages/ProjectDetailPage'
 import TeamPage from './pages/TeamPage'
 import NotificationsPage from './pages/NotificationsPage'
 import ReportsPage from './pages/ReportsPage'
@@ -47,6 +48,7 @@ export default function App() {
               <Route path="/kanban"        element={<KanbanPage />} />
               <Route path="/tasks"         element={<TasksPage />} />
               <Route path="/projects"      element={<ProjectsPage />} />
+              <Route path="/projects/:id"  element={<ProjectDetailPage />} />
               <Route path="/team"          element={<TeamPage />} />
               <Route path="/reports"       element={<ReportsPage />} />
               <Route path="/notifications" element={<NotificationsPage />} />

@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { supabaseRest, supabaseDelete, getCurrentUser } from '../lib/supabase'
 
 const COLORS = ['#2D5BE3', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899', '#06B6D4', '#64748B']
 
 export default function ProjectsPage() {
+  const navigate = useNavigate()
   const [projects, setProjects]     = useState([])
   const [taskCounts, setTaskCounts] = useState({})
   const [doneCounts, setDoneCounts] = useState({})
@@ -143,7 +145,11 @@ export default function ProjectsPage() {
             const done     = doneCounts[p.id] ?? 0
             const progress = total > 0 ? Math.round((done / total) * 100) : 0
             return (
-              <div key={p.id} className="bg-card rounded-xl border border-border shadow-card hover:shadow-card-hover transition-shadow overflow-hidden group">
+              <div
+                key={p.id}
+                onClick={() => navigate(`/projects/${p.id}`)}
+                className="bg-card rounded-xl border border-border shadow-card hover:shadow-card-hover transition-shadow overflow-hidden group cursor-pointer"
+              >
                 <div className="h-1.5" style={{ backgroundColor: p.color ?? '#2D5BE3' }} />
 
                 <div className="p-4">
@@ -155,7 +161,7 @@ export default function ProjectsPage() {
                       )}
                     </div>
                     <button
-                      onClick={() => setConfirmDeleteId(p.id)}
+                      onClick={e => { e.stopPropagation(); setConfirmDeleteId(p.id) }}
                       title="Удалить проект"
                       className="md:opacity-0 md:group-hover:opacity-100 transition-opacity text-muted hover:text-red-500 p-1 rounded shrink-0"
                     >

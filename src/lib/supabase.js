@@ -35,13 +35,91 @@ function getAccessToken() {
   return getStoredSession()?.access_token || supabaseAnonKey
 }
 
+// ─── JWT-expired retry layer ─────────────────────────────────────────────
+// PostgREST returns 401 with body { code: 'PGRST301', message: 'JWT expired' }
+// when the access token has expired but the refresh token is still valid.
+// We catch that, refresh the session via Supabase Auth, and retry once.
+function isJwtExpired(status, body) {
+  if (status !== 401 && status !== 403) return false
+  if (!body) return false
+  const code = body.code ?? ''
+  const msg  = body.message ?? body.error_description ?? body.error ?? ''
+  return code === 'PGRST301' || /jwt|expired|invalid token/i.test(String(msg))
+}
+
+let refreshInFlight = null
+async function refreshAccessToken() {
+  // De-duplicate concurrent refresh calls (multiple requests may 401 together).
+  if (!refreshInFlight) {
+    refreshInFlight = supabase.auth.refreshSession().finally(() => {
+      refreshInFlight = null
+    })
+  }
+  const { data, error } = await refreshInFlight
+  if (error || !data?.session?.access_token) return null
+  return data.session.access_token
+}
+
+async function authedFetch(url, init) {
+  const send = (token) => fetch(url, {
+    ...init,
+    headers: {
+      ...(init.headers ?? {}),
+      'apikey':        supabaseAnonKey,
+      'Authorization': `Bearer ${token || supabaseAnonKey}`,
+    },
+  })
+
+  let res = await send(getAccessToken())
+
+  if (res.status === 401 || res.status === 403) {
+    // Clone & probe the body for a JWT-expired marker without consuming it.
+    const probe = await res.clone().text()
+    let parsed = null
+    try { parsed = probe ? JSON.parse(probe) : null } catch {}
+    if (isJwtExpired(res.status, parsed)) {
+      const fresh = await refreshAccessToken()
+      if (fresh) {
+        console.info('[supabase] JWT expired — session refreshed, retrying request')
+        res = await send(fresh)
+      } else {
+        console.warn('[supabase] JWT expired and refresh failed — user must re-login')
+      }
+    }
+  }
+
+  return res
+}
+
+export async function supabaseRest(table, options = {}) {
+  const { select = '*', filters = [], method = 'GET', body } = options
+
+  let url = `${supabaseUrl}/rest/v1/${table}`
+  const params = []
+  if (method === 'GET') params.push(`select=${encodeURIComponent(select)}`)
+  filters.forEach(f => params.push(f))
+  if (params.length) url += '?' + params.join('&')
+
+  const headers = { 'Content-Type': 'application/json' }
+  if (method === 'POST') headers['Prefer'] = 'return=representation'
+
+  const res = await authedFetch(url, {
+    method,
+    headers,
+    body: body ? JSON.stringify(body) : undefined,
+  })
+
+  const text = await res.text()
+  let data = null
+  try { data = text ? JSON.parse(text) : null } catch { data = null }
+  return { data: Array.isArray(data) ? data : data ? [data] : [], error: res.ok ? null : data }
+}
+
 export async function supabasePatch(table, id, body) {
   const url = `${supabaseUrl}/rest/v1/${table}?id=eq.${id}`
-  const res = await fetch(url, {
+  const res = await authedFetch(url, {
     method: 'PATCH',
     headers: {
-      'apikey':        supabaseAnonKey,
-      'Authorization': `Bearer ${getAccessToken()}`,
       'Content-Type':  'application/json',
       'Prefer':        'return=representation',
     },
@@ -55,46 +133,12 @@ export async function supabasePatch(table, id, body) {
 
 export async function supabaseDelete(table, id) {
   const url = `${supabaseUrl}/rest/v1/${table}?id=eq.${id}`
-  const res = await fetch(url, {
+  const res = await authedFetch(url, {
     method: 'DELETE',
-    headers: {
-      'apikey':        supabaseAnonKey,
-      'Authorization': `Bearer ${getAccessToken()}`,
-      'Content-Type':  'application/json',
-    },
+    headers: { 'Content-Type': 'application/json' },
   })
   if (res.ok) return { error: null }
   let err = null
   try { err = await res.json() } catch {}
   return { error: err ?? { message: `Ошибка ${res.status}` } }
-}
-
-export async function supabaseRest(table, options = {}) {
-  const { select = '*', filters = [], method = 'GET', body } = options
-
-  const token = getAccessToken()
-
-  let url = `${supabaseUrl}/rest/v1/${table}`
-  const params = []
-  if (method === 'GET') params.push(`select=${encodeURIComponent(select)}`)
-  filters.forEach(f => params.push(f))
-  if (params.length) url += '?' + params.join('&')
-
-  const headers = {
-    'apikey':        supabaseAnonKey,
-    'Authorization': `Bearer ${token}`,
-    'Content-Type':  'application/json',
-  }
-  if (method === 'POST') headers['Prefer'] = 'return=representation'
-
-  const res = await fetch(url, {
-    method,
-    headers,
-    body: body ? JSON.stringify(body) : undefined,
-  })
-
-  const text = await res.text()
-  let data = null
-  try { data = text ? JSON.parse(text) : null } catch { data = null }
-  return { data: Array.isArray(data) ? data : data ? [data] : [], error: res.ok ? null : data }
 }
