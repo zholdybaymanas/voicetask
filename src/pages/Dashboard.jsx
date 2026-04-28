@@ -41,12 +41,13 @@ export default function Dashboard() {
   useEffect(() => {
     if (!user?.id) return
     loadAll()
-    window.addEventListener('voiceTaskCreated', loadAll)
+    const silentReload = () => loadAll({ silent: true })
+    window.addEventListener('voiceTaskCreated', silentReload)
     const ch = supabase.channel('dashboard-rt')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks' }, loadAll)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks' }, silentReload)
       .subscribe()
     return () => {
-      window.removeEventListener('voiceTaskCreated', loadAll)
+      window.removeEventListener('voiceTaskCreated', silentReload)
       supabase.removeChannel(ch)
     }
   }, [user?.id])
@@ -85,9 +86,9 @@ export default function Dashboard() {
     }
   }
 
-  async function loadAll() {
+  async function loadAll({ silent = false } = {}) {
     if (!user?.id) return
-    setLoading(true)
+    if (!silent) setLoading(true)
     setError(null)
     try {
       const [tasksRes, projectsRes, profilesRes] = await Promise.all([
@@ -112,7 +113,7 @@ export default function Dashboard() {
       console.error('[Dashboard] loadAll:', err)
       setError(err.message ?? 'Не удалось загрузить задачи')
     } finally {
-      setLoading(false)
+      if (!silent) setLoading(false)
     }
   }
 
