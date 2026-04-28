@@ -5,7 +5,7 @@ import {
   closestCorners,
 } from '@dnd-kit/core'
 import {
-  SortableContext, useSortable, verticalListSortingStrategy,
+  SortableContext, useSortable, verticalListSortingStrategy, arrayMove,
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { supabase, supabaseRest, supabasePatch, getCurrentUser } from '../lib/supabase'
@@ -137,22 +137,22 @@ export default function KanbanPage() {
     setSelectedId(null)
   }
 
-  // Compute the sort_order to assign so the active task lands at `targetIndex`
-  // within `destTasks` (sorted top→bottom by sort_order desc), excluding active itself.
+  // Pick a sort_order between the two neighbours so the dropped task
+  // sits between them (sort_order DESC ⇒ above's value > below's value).
+  function neighborMid(above, below) {
+    const ao = above?.sort_order
+    const bo = below?.sort_order
+    if (ao == null && bo == null) return Date.now() / 1000
+    if (ao == null) return bo + 1                  // dropped at top
+    if (bo == null) return ao - 1                  // dropped at bottom
+    return (ao + bo) / 2
+  }
+
+  // Used by mobile move-menu fallback — drops at top of destination column.
   function pickSortOrder(destTasks, targetIndex) {
-    const list = destTasks
-    if (list.length === 0) return Date.now() / 1000
-    if (targetIndex <= 0) {
-      const top = list[0].sort_order ?? Date.now() / 1000
-      return top + 1
-    }
-    if (targetIndex >= list.length) {
-      const bottom = list[list.length - 1].sort_order ?? 0
-      return bottom - 1
-    }
-    const above = list[targetIndex - 1].sort_order ?? 0
-    const below = list[targetIndex    ].sort_order ?? 0
-    return (above + below) / 2
+    const above = destTasks[targetIndex - 1]
+    const below = destTasks[targetIndex]
+    return neighborMid(above, below)
   }
 
   async function moveTask(task, toStatus, newSortOrder = null) {
@@ -267,38 +267,46 @@ export default function KanbanPage() {
           onDragStart={({ active }) => setActiveId(active.id)}
           onDragEnd={({ active, over }) => {
             setActiveId(null)
-            if (!over) return
-            const task = tasks.find(t => t.id === active.id)
-            if (!task) return
+            if (!over || active.id === over.id) return
+
+            const activeTask = tasks.find(t => t.id === active.id)
+            if (!activeTask) return
+
             const overTask = tasks.find(t => t.id === over.id)
             const targetStatus = overTask ? normalizeStatus(overTask.status) : over.id
             if (!COLUMNS.find(c => c.id === targetStatus)) return
 
-            const sourceStatus = normalizeStatus(task.status)
-            const destList = (tasksByStatus[targetStatus] ?? []).filter(t => t.id !== task.id)
-            let targetIndex = destList.length // drop on column body → end
+            const sourceStatus = normalizeStatus(activeTask.status)
 
-            if (overTask) {
-              const overIdxInDest = destList.findIndex(t => t.id === overTask.id)
-              if (overIdxInDest !== -1) {
-                targetIndex = overIdxInDest
-                // Same-column reorder: dnd-kit's verticalListSortingStrategy
-                // places `active` AFTER `over` when dragging downward (active was
-                // originally above over). Mirror that — otherwise the dropped
-                // card lands one slot too high vs. the preview.
-                if (sourceStatus === targetStatus) {
-                  const origList = tasksByStatus[targetStatus] ?? []
-                  const origActiveIdx = origList.findIndex(t => t.id === task.id)
-                  const origOverIdx   = origList.findIndex(t => t.id === overTask.id)
-                  if (origActiveIdx >= 0 && origOverIdx >= 0 && origActiveIdx < origOverIdx) {
-                    targetIndex += 1
-                  }
-                }
-              }
+            // Same-column reorder: use dnd-kit's canonical arrayMove pattern.
+            // Read the post-move neighbors from the reordered array — that
+            // way the dropped position always matches the preview exactly.
+            if (sourceStatus === targetStatus && overTask) {
+              const items   = tasksByStatus[targetStatus] ?? []
+              const oldIdx  = items.findIndex(t => t.id === activeTask.id)
+              const newIdx  = items.findIndex(t => t.id === overTask.id)
+              if (oldIdx === -1 || newIdx === -1 || oldIdx === newIdx) return
+
+              const reordered = arrayMove(items, oldIdx, newIdx)
+              const above = reordered[newIdx - 1]
+              const below = reordered[newIdx + 1]
+              const newSortOrder = neighborMid(above, below)
+              moveTask(activeTask, targetStatus, newSortOrder)
+              return
             }
 
-            const newSortOrder = pickSortOrder(destList, targetIndex)
-            moveTask(task, targetStatus, newSortOrder)
+            // Cross-column move: place `active` at over's position in the
+            // destination column (or at the end if dropped on column body).
+            const destItems = tasksByStatus[targetStatus] ?? []
+            let insertAt = destItems.length
+            if (overTask) {
+              const idx = destItems.findIndex(t => t.id === overTask.id)
+              if (idx !== -1) insertAt = idx
+            }
+            const above = destItems[insertAt - 1]
+            const below = destItems[insertAt]
+            const newSortOrder = neighborMid(above, below)
+            moveTask(activeTask, targetStatus, newSortOrder)
           }}
           onDragCancel={() => setActiveId(null)}
         >
