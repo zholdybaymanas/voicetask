@@ -274,13 +274,29 @@ export default function KanbanPage() {
             const targetStatus = overTask ? normalizeStatus(overTask.status) : over.id
             if (!COLUMNS.find(c => c.id === targetStatus)) return
 
-            // Compute target index in destination column (excluding the active task)
+            const sourceStatus = normalizeStatus(task.status)
             const destList = (tasksByStatus[targetStatus] ?? []).filter(t => t.id !== task.id)
-            let targetIndex = destList.length // drop at end if just the column
+            let targetIndex = destList.length // drop on column body → end
+
             if (overTask) {
-              const overIdx = destList.findIndex(t => t.id === overTask.id)
-              if (overIdx !== -1) targetIndex = overIdx
+              const overIdxInDest = destList.findIndex(t => t.id === overTask.id)
+              if (overIdxInDest !== -1) {
+                targetIndex = overIdxInDest
+                // Same-column reorder: dnd-kit's verticalListSortingStrategy
+                // places `active` AFTER `over` when dragging downward (active was
+                // originally above over). Mirror that — otherwise the dropped
+                // card lands one slot too high vs. the preview.
+                if (sourceStatus === targetStatus) {
+                  const origList = tasksByStatus[targetStatus] ?? []
+                  const origActiveIdx = origList.findIndex(t => t.id === task.id)
+                  const origOverIdx   = origList.findIndex(t => t.id === overTask.id)
+                  if (origActiveIdx >= 0 && origOverIdx >= 0 && origActiveIdx < origOverIdx) {
+                    targetIndex += 1
+                  }
+                }
+              }
             }
+
             const newSortOrder = pickSortOrder(destList, targetIndex)
             moveTask(task, targetStatus, newSortOrder)
           }}
