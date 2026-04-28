@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
+import { useScheduledReports } from '../hooks/useScheduledReports'
 import { supabase, supabaseRest } from '../lib/supabase'
 import { useTheme } from '../contexts/ThemeContext'
 import VoiceInput from './VoiceInput'
@@ -70,6 +71,7 @@ function ThemeSwitcher() {
 
 export default function Layout() {
   const { user, profile, signOut } = useAuth()
+  useScheduledReports(user?.id)
   const [sidebarOpen, setSidebarOpen] = useState(() =>
     typeof window !== 'undefined' ? window.innerWidth >= 768 : true
   )

@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { supabase, supabaseRest, supabasePatch, getCurrentUser } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import { descriptionPreview } from '../lib/description'
@@ -32,13 +33,28 @@ const TAB_EMPTY = {
   inbox: { title: 'Нет входящих задач',   sub: 'Когда вам назначат задачу — она появится здесь.' },
   sent:  { title: 'Нет отправленных',      sub: 'Здесь появятся задачи, которые вы делегировали другим.' },
   all:   { title: 'Задач нет',             sub: 'Создайте первую задачу.' },
+  today: { title: 'Нет задач за этот день', sub: 'Выберите другую дату или создайте задачу.' },
+}
+
+function todayStr() { return new Date().toISOString().split('T')[0] }
+function nextDayStr(d) {
+  const next = new Date(d + 'T00:00:00')
+  next.setDate(next.getDate() + 1)
+  return next.toISOString().split('T')[0]
+}
+function formatShort(d) {
+  return new Date(d + 'T00:00:00').toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })
 }
 
 export default function TasksPage() {
   const { user, profile } = useAuth()
   const isAdmin = profile?.role === 'admin'
+  const [searchParams, setSearchParams] = useSearchParams()
+  const dateInputRef = useRef(null)
 
-  const [tab, setTab] = useState('all') // 'all' | 'inbox' | 'sent'
+  const initialDate = searchParams.get('date') || todayStr()
+  const [tab,     setTab]     = useState(searchParams.get('date') ? 'today' : 'all') // 'all' | 'today' | 'inbox' | 'sent'
+  const [tabDate, setTabDate] = useState(initialDate)
   const [tasks, setTasks]               = useState([])
   const [projects, setProjects]         = useState([])
   const [team, setTeam]                 = useState([])
@@ -65,7 +81,23 @@ export default function TasksPage() {
       window.removeEventListener('voiceTaskCreated', silentReload)
       supabase.removeChannel(ch)
     }
-  }, [user?.id, tab])
+  }, [user?.id, tab, tabDate])
+
+  // Sync URL ?date= → state when external link opens this page
+  useEffect(() => {
+    const dateParam = searchParams.get('date')
+    if (dateParam && dateParam !== tabDate) {
+      setTab('today')
+      setTabDate(dateParam)
+    }
+  }, [searchParams])
+
+  function pickDate(d) {
+    setTabDate(d)
+    setTab('today')
+    if (d === todayStr()) setSearchParams({})
+    else setSearchParams({ date: d })
+  }
 
   async function loadAll({ silent = false } = {}) {
     if (!user?.id) return
@@ -74,7 +106,10 @@ export default function TasksPage() {
     try {
       // Build per-tab filter
       const taskFilters = ['order=created_at.desc']
-      if (tab === 'inbox') {
+      if (tab === 'today') {
+        taskFilters.push(`created_at=gte.${tabDate}T00:00:00`)
+        taskFilters.push(`created_at=lt.${nextDayStr(tabDate)}T00:00:00`)
+      } else if (tab === 'inbox') {
         taskFilters.push(`assignee_id=eq.${user.id}`)
       } else if (tab === 'sent') {
         taskFilters.push(`created_by=eq.${user.id}`)
@@ -143,30 +178,55 @@ export default function TasksPage() {
   const assigneeById = Object.fromEntries(team.map(u => [u.id, u]))
   const selectedTask = tasks.find(t => t.id === selectedId) ?? null
 
+  const todayLabel = tabDate === todayStr() ? 'За сегодня' : `За ${formatShort(tabDate)}`
   const tabs = [
     { id: 'all',   label: 'Все' },
+    { id: 'today', label: todayLabel },
     { id: 'inbox', label: 'Входящие' },
     { id: 'sent',  label: 'Отправленные' },
   ]
 
   return (
     <div className="space-y-4">
-      {/* Tabs */}
-      <div className="flex bg-hover rounded-lg p-1 w-fit">
-        {tabs.map(t => (
-          <button
-            key={t.id}
-            type="button"
-            onClick={() => setTab(t.id)}
-            className={`text-sm font-medium py-1.5 px-4 rounded-md transition-colors ${
-              tab === t.id
-                ? 'bg-card text-text shadow-card'
-                : 'text-muted hover:text-text'
-            }`}
-          >
-            {t.label}
-          </button>
-        ))}
+      {/* Tabs + date picker */}
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="flex bg-hover rounded-lg p-1 w-fit">
+          {tabs.map(t => (
+            <button
+              key={t.id}
+              type="button"
+              onClick={() => setTab(t.id)}
+              className={`text-sm font-medium py-1.5 px-3 sm:px-4 rounded-md transition-colors ${
+                tab === t.id
+                  ? 'bg-card text-text shadow-card'
+                  : 'text-muted hover:text-text'
+              }`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Calendar — opens date picker, switches to "За дату" tab */}
+        <button
+          type="button"
+          onClick={() => dateInputRef.current?.showPicker?.() ?? dateInputRef.current?.focus?.()}
+          title="Выбрать дату"
+          className="text-muted hover:text-text bg-hover hover:bg-card border border-transparent hover:border-border p-2 rounded-lg transition-colors"
+        >
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+            <path strokeLinecap="round" strokeLinejoin="round"
+              d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5" />
+          </svg>
+        </button>
+        <input
+          ref={dateInputRef}
+          type="date"
+          value={tabDate}
+          onChange={e => e.target.value && pickDate(e.target.value)}
+          className="sr-only"
+          aria-hidden="true"
+        />
       </div>
 
       {/* Filter bar */}

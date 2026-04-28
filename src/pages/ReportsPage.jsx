@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { supabaseRest } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 
@@ -33,6 +34,8 @@ export default function ReportsPage() {
   const [error, setError]       = useState(null)
   const [exporting, setExporting] = useState(false)
 
+  const [searchParams] = useSearchParams()
+
   const [fProject,   setFProject]   = useState('')
   const [fAssignee,  setFAssignee]  = useState('')
   const [fStatus,    setFStatus]    = useState('')
@@ -44,6 +47,24 @@ export default function ReportsPage() {
   useEffect(() => {
     loadAll()
   }, [])
+
+  // Read URL params on mount: ?period=week → set range to current week
+  useEffect(() => {
+    if (searchParams.get('period') === 'week') {
+      const today = new Date()
+      const dow = (today.getDay() + 6) % 7 // 0 = Monday
+      const monday = new Date(today)
+      monday.setDate(today.getDate() - dow)
+      const fmt = (d) => {
+        const y = d.getFullYear()
+        const m = String(d.getMonth() + 1).padStart(2, '0')
+        const day = String(d.getDate()).padStart(2, '0')
+        return `${y}-${m}-${day}`
+      }
+      setFFrom(fmt(monday))
+      setFTo(fmt(today))
+    }
+  }, [searchParams])
 
   async function loadAll() {
     setLoading(true)
