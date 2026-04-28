@@ -153,6 +153,7 @@ Vercel автоматически определит Vite. `vercel.json` уже 
 |------------------------------|--------------------------|---------------------------|
 | `VITE_SUPABASE_URL`          | `https://xxx.supabase.co`| frontend (build time)     |
 | `VITE_SUPABASE_ANON_KEY`     | `eyJ...`                 | frontend (build time)     |
+| `VITE_APP_URL`               | `https://voicetask-cfo.vercel.app` | `emailRedirectTo` для signup/reset |
 | `SUPABASE_SERVICE_ROLE_KEY`  | `eyJ...`                 | `api/admin.js` (server)   |
 | `ANTHROPIC_API_KEY`          | `sk-ant-...`             | `api/tasks.js` (голос)    |
 

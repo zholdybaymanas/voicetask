@@ -1,6 +1,17 @@
 import { useState, useEffect } from 'react'
 import { supabase, supabaseRest } from '../lib/supabase'
 
+// Where Supabase sends confirmation / reset links back to. Prefer the
+// build-time VITE_APP_URL (set per environment in Vercel / .env), fall
+// back to whichever origin the user is signing up from. This avoids
+// localhost links being sent to coworkers in production.
+function getRedirectURL() {
+  const fromEnv = import.meta.env.VITE_APP_URL
+  if (fromEnv) return fromEnv.replace(/\/$/, '')
+  if (typeof window !== 'undefined') return window.location.origin
+  return undefined
+}
+
 // Read session from localStorage without touching the Supabase client
 function readStoredSession() {
   try {
@@ -61,11 +72,17 @@ export function useAuth() {
       password,
       options: {
         data: { full_name: fullName?.trim() || '' },
-        // Send confirmation links back to whichever origin the user is
-        // signing up from. Without this, Supabase falls back to its
-        // configured Site URL (often still localhost).
-        emailRedirectTo: typeof window !== 'undefined' ? window.location.origin : undefined,
+        emailRedirectTo: getRedirectURL(),
       },
+    })
+    if (error) setError(error.message)
+    return { data, error }
+  }
+
+  async function resetPassword(email) {
+    setError(null)
+    const { data, error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: getRedirectURL(),
     })
     if (error) setError(error.message)
     return { data, error }
@@ -78,5 +95,5 @@ export function useAuth() {
     return { error }
   }
 
-  return { session, user, profile, loading, error, signIn, signUp, signOut }
+  return { session, user, profile, loading, error, signIn, signUp, signOut, resetPassword }
 }
