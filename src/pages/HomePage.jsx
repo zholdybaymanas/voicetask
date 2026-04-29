@@ -1,7 +1,7 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { useAuth } from '../hooks/useAuth'
 import { useVoiceInput } from '../contexts/VoiceInputContext'
-import { isTouchDevice, isIOS, isSafari, isStandalonePWA } from '../lib/platform'
+import { isIOS, isSafari, isStandalonePWA } from '../lib/platform'
 
 function getGreeting(name) {
   const h = new Date().getHours()
@@ -19,19 +19,37 @@ export default function HomePage() {
 
   const displayName = profile?.full_name || user?.email?.split('@')[0] || ''
 
-  const touchHandlers = isTouchDevice ? {
-    onTouchStart: (e) => {
-      e.preventDefault()
-      if (!isProcessing && !isListening) startListening()
-    },
-    onTouchEnd: (e) => {
-      e.preventDefault()
-      if (isListening) stopListening()
-    },
-    onTouchCancel: () => { if (isListening) stopListening() },
-  } : {}
+  // Track the pointer type of the active press so we know whether to treat
+  // pointerup as a hold-release (touch/pen) or ignore it in favor of click (mouse).
+  const activePointerTypeRef = useRef(null)
 
-  const clickHandler = isTouchDevice ? () => {} : () => {
+  function handlePointerDown(e) {
+    if (isProcessing) return
+    activePointerTypeRef.current = e.pointerType
+    if (e.pointerType === 'mouse') return // mouse uses click-to-toggle below
+    e.preventDefault()
+    if (!isListening) startListening()
+  }
+
+  function handlePointerUp(e) {
+    if (activePointerTypeRef.current === 'mouse') {
+      activePointerTypeRef.current = null
+      return
+    }
+    activePointerTypeRef.current = null
+    if (isListening) stopListening()
+  }
+
+  function handlePointerCancel() {
+    if (activePointerTypeRef.current && activePointerTypeRef.current !== 'mouse') {
+      if (isListening) stopListening()
+    }
+    activePointerTypeRef.current = null
+  }
+
+  function handleClick() {
+    // Click only fires for mouse-style pointers (touch never reaches this
+    // because we preventDefault on pointerdown). Toggle behavior on desktop.
     if (isProcessing) return
     if (isListening) stopListening()
     else startListening()
@@ -40,11 +58,13 @@ export default function HomePage() {
   const hint = isProcessing
     ? 'Обрабатываю...'
     : isListening
-      ? (isTouchDevice ? 'Отпустите, чтобы закончить' : 'Нажмите ещё раз, чтобы остановить')
-      : (isTouchDevice ? 'Удерживайте, чтобы записать' : 'Нажмите, чтобы записать')
+      ? 'Отпустите, чтобы закончить'
+      : 'Нажмите и удерживайте, чтобы записать'
+
+  const showTranscript = !isListening && transcript
 
   return (
-    <div className="flex flex-col items-center justify-center text-center px-4 h-full overflow-hidden">
+    <div className="flex flex-col items-center justify-center text-center px-4 h-full min-h-[calc(100dvh-7rem)] sm:min-h-[calc(100dvh-3.5rem)] overflow-hidden">
       <h1 className="text-2xl sm:text-3xl font-semibold text-text mb-2">
         {getGreeting(displayName)}
       </h1>
@@ -53,10 +73,15 @@ export default function HomePage() {
       </p>
 
       <button
-        {...touchHandlers}
-        onClick={clickHandler}
+        onPointerDown={handlePointerDown}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerCancel}
+        onPointerLeave={handlePointerCancel}
+        onClick={handleClick}
+        onContextMenu={(e) => e.preventDefault()}
         disabled={isProcessing}
         aria-label="Голосовая задача"
+        style={{ touchAction: 'none', WebkitUserSelect: 'none', WebkitTouchCallout: 'none' }}
         className={`
           relative w-32 h-32 sm:w-40 sm:h-40 rounded-full
           flex items-center justify-center
@@ -84,10 +109,13 @@ export default function HomePage() {
 
       <p className="text-xs sm:text-sm text-muted mt-6 min-h-[1.25rem]">{hint}</p>
 
-      {/* Transcript stream */}
+      {/* Transcript shown only after recording ends, with a fade-in. */}
       <div className="mt-6 sm:mt-8 max-w-md w-full min-h-[3rem]">
-        {transcript ? (
-          <p className="text-xs sm:text-sm text-muted leading-relaxed break-words">
+        {showTranscript ? (
+          <p
+            key={transcript}
+            className="text-sm sm:text-base text-text leading-relaxed break-words transcript-fade-in"
+          >
             {transcript}
           </p>
         ) : null}

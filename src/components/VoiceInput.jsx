@@ -38,15 +38,52 @@ export default function VoiceInput() {
 
   return (
     <>
-      {/* Toast */}
+      {/* Toast — either a rich task-created card or a one-line message. */}
       {toast && (
-        <div className="fixed bottom-20 sm:bottom-24 right-4 sm:right-7 z-50 animate-in">
-          <div className="bg-card border border-border text-text text-sm font-medium px-4 py-3 rounded-xl shadow-card-hover flex items-center gap-2 max-w-xs">
-            <svg className="w-4 h-4 text-emerald-400 shrink-0" fill="currentColor" viewBox="0 0 20 20">
-              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.857-9.809a.75.75 0 00-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 10-1.06 1.061l2.5 2.5a.75.75 0 001.137-.089l4-5.5z" clipRule="evenodd" />
-            </svg>
-            <span className="truncate">{toast.message}</span>
-          </div>
+        <div
+          key={toast.id}
+          className="task-toast-show fixed bottom-20 sm:bottom-24 right-4 sm:right-7 z-50 max-w-xs sm:max-w-sm w-[calc(100vw-2rem)]"
+        >
+          {toast.kind === 'task-created' ? (
+            <div className="bg-card border border-border rounded-xl shadow-card-hover px-4 py-3">
+              <div className="flex items-center gap-2 mb-2">
+                <svg className="w-4 h-4 text-emerald-400 shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.857-9.809a.75.75 0 00-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 10-1.06 1.061l2.5 2.5a.75.75 0 001.137-.089l4-5.5z" clipRule="evenodd" />
+                </svg>
+                <span className="text-sm font-semibold text-text">{toast.headline}</span>
+              </div>
+              {toast.title && (
+                <p className="text-sm text-text leading-snug break-words mb-1.5">{toast.title}</p>
+              )}
+              <div className="space-y-0.5 text-xs text-muted leading-relaxed">
+                {toast.projectName && (
+                  <div className="flex items-center gap-1.5">
+                    <span aria-hidden>📁</span>
+                    <span className="truncate"><span className="text-text">Проект:</span> {toast.projectName}</span>
+                  </div>
+                )}
+                {toast.assigneeName && (
+                  <div className="flex items-center gap-1.5">
+                    <span aria-hidden>👤</span>
+                    <span className="truncate"><span className="text-text">Исполнитель:</span> {toast.assigneeName}</span>
+                  </div>
+                )}
+                {toast.deadlineText && (
+                  <div className="flex items-center gap-1.5">
+                    <span aria-hidden>📅</span>
+                    <span className="truncate"><span className="text-text">Дедлайн:</span> {toast.deadlineText}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : (
+            <div className="bg-card border border-border text-text text-sm font-medium px-4 py-3 rounded-xl shadow-card-hover flex items-center gap-2">
+              <svg className="w-4 h-4 text-emerald-400 shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.857-9.809a.75.75 0 00-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 10-1.06 1.061l2.5 2.5a.75.75 0 001.137-.089l4-5.5z" clipRule="evenodd" />
+              </svg>
+              <span className="truncate">{toast.message}</span>
+            </div>
+          )}
         </div>
       )}
 

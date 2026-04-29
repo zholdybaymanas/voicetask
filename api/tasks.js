@@ -63,10 +63,17 @@ ${teamLines}
 ПРОЕКТЫ (название = uuid):
 ${projectLines}
 
-ГОЛОСОВОЙ ТЕКСТ:
+ИСХОДНЫЙ ГОЛОСОВОЙ ТЕКСТ (с возможными ошибками распознавания):
 "${transcript}"
 
-Извлеки структурированную задачу. Понимай естественную русскую речь.
+ШАГ 1 — ОЧИСТКА ТЕКСТА (поле "cleaned"):
+Удали из текста:
+- Слова-паразиты: «э», «эээ», «ну», «вот», «значит», «типа», «как бы», «это самое», «короче»
+- Повторения и заикания: «сделать сделать» → «сделать»
+- Очевидные ошибки распознавания (если из контекста ясно что имелось в виду)
+Сохрани смысл, имена и термины. Если текст уже чистый — оставь как есть.
+
+ШАГ 2 — ПАРСИНГ задачи из ОЧИЩЕННОГО текста.
 
 ИСПОЛНИТЕЛЬ (assigned_to) — кто должен выполнить:
 - "Манас сделает презентацию" → uuid Манаса
@@ -106,7 +113,7 @@ CONFIDENCE (0.0–1.0) — твоя уверенность в распознав
 - < 0.4: совсем непонятно
 
 Верни ТОЛЬКО валидный JSON, без markdown, без пояснений, без \`\`\`:
-{"title":"...","assigned_to":null,"project_id":null,"deadline":null,"confidence":0.85}`
+{"cleaned":"очищенный текст","title":"...","assigned_to":null,"project_id":null,"deadline":null,"confidence":0.85}`
 
     console.log('[api/tasks] calling Claude API...')
 
@@ -143,13 +150,15 @@ CONFIDENCE (0.0–1.0) — твоя уверенность в распознав
       parsed = JSON.parse(jsonStr)
     } catch (parseErr) {
       console.error('[api/tasks] JSON parse error:', parseErr.message)
-      parsed = { title: transcript, assigned_to: null, project_id: null, deadline: null, confidence: 0.3 }
+      parsed = { cleaned: transcript, title: transcript, assigned_to: null, project_id: null, deadline: null, confidence: 0.3 }
     }
 
     // Validate uuids — Claude может галлюцинировать. Принимаем только uuid из списков.
     const validUserIds    = new Set(team.map(u => u.id))
     const validProjectIds = new Set(projects.map(p => p.id))
+    const cleanedRaw = typeof parsed.cleaned === 'string' ? parsed.cleaned.trim() : ''
     const result = {
+      cleaned:     cleanedRaw ? cleanedRaw.slice(0, 4000) : transcript,
       title:       String(parsed.title ?? transcript).slice(0, 255).trim() || transcript,
       assigned_to: validUserIds.has(parsed.assigned_to)    ? parsed.assigned_to : null,
       project_id:  validProjectIds.has(parsed.project_id)  ? parsed.project_id  : null,

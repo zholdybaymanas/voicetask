@@ -11,6 +11,7 @@ import { CSS } from '@dnd-kit/utilities'
 import { supabaseRest, supabasePatch, getCurrentUser } from '../lib/supabase'
 import { syncTaskToGoogleCalendar } from '../lib/googleCalendar'
 import { useTaskRealtime } from '../hooks/useTaskRealtime'
+import { taskVisibilityFilter } from '../lib/taskAccess'
 import { useAuth } from '../hooks/useAuth'
 import { descriptionPreview } from '../lib/description'
 import TaskDetailDrawer from '../components/TaskDetailDrawer'
@@ -70,13 +71,13 @@ export default function KanbanPage({ projectFilter = null } = {}) {
     if (!user?.id) return
     loadAll()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.id, projectFilter])
+  }, [user?.id, profile?.role, projectFilter])
 
   useTaskRealtime({
     channelName: projectFilter ? `kanban-rt-${projectFilter}` : 'kanban-rt',
     enabled:     !!user?.id,
     refresh:     loadAll,
-    deps:        [user?.id, projectFilter],
+    deps:        [user?.id, profile?.role, projectFilter],
   })
 
   async function loadAll({ silent = false } = {}) {
@@ -85,7 +86,7 @@ export default function KanbanPage({ projectFilter = null } = {}) {
     setError(null)
     try {
       const taskFilters = [
-        `or=(assignee_id.eq.${user.id},created_by.eq.${user.id})`,
+        ...taskVisibilityFilter(user, profile),
         ...(projectFilter ? [`project_id=eq.${projectFilter}`] : []),
         'order=sort_order.desc.nullslast,created_at.desc',
       ]

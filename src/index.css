@@ -292,3 +292,20 @@ input, textarea, select { transition: border-color 0.15s ease, box-shadow 0.15s 
 .mic-active-pulse { animation: mic-pulse-active 1s ease-in-out infinite; }
 .mic-active-pulse:active,
 .mic-idle-pulse:active { animation-play-state: paused; transform: scale(0.95); }
+
+/* Transcript fade-in — used after recording ends to surface cleaned text */
+@keyframes transcript-fade-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.transcript-fade-in { animation: transcript-fade-in 0.35s ease-out both; }
+
+/* Task-created toast — fades in, holds, fades out over 3s. The unmount
+   happens on the JS timer (matching the 3000ms in VoiceInputContext). */
+@keyframes task-toast-show {
+  0%   { opacity: 0; transform: translateY(8px); }
+  10%  { opacity: 1; transform: translateY(0); }
+  85%  { opacity: 1; transform: translateY(0); }
+  100% { opacity: 0; transform: translateY(-4px); }
+}
+.task-toast-show { animation: task-toast-show 3s ease forwards; }

@@ -1,11 +1,14 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabaseRest, supabaseDelete, getCurrentUser } from '../lib/supabase'
+import { taskVisibilityFilter } from '../lib/taskAccess'
+import { useAuth } from '../hooks/useAuth'
 
 const COLORS = ['#2D5BE3', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899', '#06B6D4', '#64748B']
 
 export default function ProjectsPage() {
   const navigate = useNavigate()
+  const { user, profile } = useAuth()
   const [projects, setProjects]     = useState([])
   const [taskCounts, setTaskCounts] = useState({})
   const [doneCounts, setDoneCounts] = useState({})
@@ -18,7 +21,7 @@ export default function ProjectsPage() {
   const [confirmDeleteId, setConfirmDeleteId] = useState(null)
   const [deleting, setDeleting]     = useState(false)
 
-  useEffect(() => { loadProjects() }, [])
+  useEffect(() => { loadProjects() /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [user?.id, profile?.role])
 
   async function loadProjects() {
     setLoading(true)
@@ -26,7 +29,7 @@ export default function ProjectsPage() {
     try {
       const [projectsRes, tasksRes] = await Promise.all([
         supabaseRest('projects', { filters: ['archived=eq.false', 'order=created_at.asc'] }),
-        supabaseRest('tasks', { select: 'project_id,status' }),
+        supabaseRest('tasks', { select: 'project_id,status', filters: taskVisibilityFilter(user, profile) }),
       ])
       if (projectsRes.error) throw new Error(projectsRes.error.message ?? JSON.stringify(projectsRes.error))
       if (tasksRes.error)    throw new Error(tasksRes.error.message    ?? JSON.stringify(tasksRes.error))

@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { supabaseRest } from '../lib/supabase'
+import { taskVisibilityFilter } from '../lib/taskAccess'
 import { useAuth } from '../hooks/useAuth'
 
 const STATUS_LABEL = {
@@ -26,7 +27,7 @@ function fmtDate(d) {
 }
 
 export default function ReportsPage() {
-  const { profile } = useAuth()
+  const { user, profile } = useAuth()
   const [tasks, setTasks]       = useState([])
   const [projects, setProjects] = useState([])
   const [team, setTeam]         = useState([])
@@ -46,7 +47,8 @@ export default function ReportsPage() {
 
   useEffect(() => {
     loadAll()
-  }, [])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id, profile?.role])
 
   // Read URL params on mount: ?period=week → set range to current week
   useEffect(() => {
@@ -73,7 +75,7 @@ export default function ReportsPage() {
       const [tasksRes, projectsRes, profilesRes] = await Promise.all([
         supabaseRest('tasks', {
           select: '*,projects(name,color)',
-          filters: ['order=created_at.desc'],
+          filters: ['order=created_at.desc', ...taskVisibilityFilter(user, profile)],
         }),
         supabaseRest('projects', { select: 'id,name', filters: ['archived=eq.false'] }),
         supabaseRest('profiles', { select: 'id,full_name,email' }),

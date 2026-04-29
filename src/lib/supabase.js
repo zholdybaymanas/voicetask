@@ -35,15 +35,24 @@ function getAccessToken() {
   return getStoredSession()?.access_token || supabaseAnonKey
 }
 
-// Authorization header for hitting our own /api/* endpoints. Pulls a
-// fresh JWT via the Supabase client so the token is auto-refreshed.
+// Authorization header for hitting our own /api/* endpoints. Returns a
+// fresh JWT — proactively refreshes the session if the token is missing
+// or about to expire (within 60s), so the API never gets a stale token
+// and 401s with "Unauthorized".
 export async function getAuthHeader() {
   try {
-    const { data } = await supabase.auth.getSession()
-    const token = data?.session?.access_token
-    if (token) return { Authorization: `Bearer ${token}` }
-  } catch {}
-  // Fallback to stored session token (still valid most of the time)
+    let session = (await supabase.auth.getSession()).data?.session ?? null
+    const exp    = session?.expires_at ?? 0
+    const nowSec = Math.floor(Date.now() / 1000)
+    if (!session?.access_token || exp - nowSec < 60) {
+      const refreshed = (await supabase.auth.refreshSession()).data?.session
+      if (refreshed?.access_token) session = refreshed
+    }
+    if (session?.access_token) return { Authorization: `Bearer ${session.access_token}` }
+  } catch (err) {
+    console.warn('[supabase] getAuthHeader:', err)
+  }
+  // Last-resort fallback to stored token (might still be valid).
   const stored = getStoredSession()?.access_token
   return stored ? { Authorization: `Bearer ${stored}` } : {}
 }

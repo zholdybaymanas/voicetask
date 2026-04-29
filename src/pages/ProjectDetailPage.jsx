@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from 'react'
 import { Link, useParams, useNavigate } from 'react-router-dom'
 import { supabase, supabaseRest } from '../lib/supabase'
 import { toggleTaskDone } from '../lib/taskActions'
+import { taskVisibilityFilter } from '../lib/taskAccess'
 import { useAuth } from '../hooks/useAuth'
 import { descriptionPreview } from '../lib/description'
 import TaskDetailDrawer from '../components/TaskDetailDrawer'
@@ -30,7 +31,7 @@ function normStatus(s) {
 export default function ProjectDetailPage() {
   const { id } = useParams()
   const navigate = useNavigate()
-  const { user } = useAuth()
+  const { user, profile } = useAuth()
   const [project, setProject] = useState(null)
   const [tasks, setTasks]     = useState([])
   const [team, setTeam]       = useState([])
@@ -50,7 +51,8 @@ export default function ProjectDetailPage() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks', filter: `project_id=eq.${id}` }, silentReload)
       .subscribe()
     return () => supabase.removeChannel(ch)
-  }, [id])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, user?.id, profile?.role])
 
   async function loadAll({ silent = false } = {}) {
     if (!silent) setLoading(true)
@@ -60,7 +62,11 @@ export default function ProjectDetailPage() {
         supabaseRest('projects', { filters: [`id=eq.${id}`] }),
         supabaseRest('tasks', {
           select: '*',
-          filters: [`project_id=eq.${id}`, 'order=sort_order.desc.nullslast,created_at.desc'],
+          filters: [
+            `project_id=eq.${id}`,
+            ...taskVisibilityFilter(user, profile),
+            'order=sort_order.desc.nullslast,created_at.desc',
+          ],
         }),
         supabaseRest('profiles', { select: 'id,full_name,email' }),
         supabaseRest('projects', { select: 'id,name,color', filters: ['archived=eq.false'] }),

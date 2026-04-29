@@ -38,10 +38,21 @@ export function VoiceInputProvider({ children }) {
       })
   }, [])
 
-  function showToast(message) {
+  function showToast(payload) {
     clearTimeout(toastTimerRef.current)
-    setToast({ message })
-    toastTimerRef.current = setTimeout(() => setToast(null), 3500)
+    // Accept either a string (legacy short message) or a rich payload with
+    // task details (project / assignee / deadline). Auto-hides after 3s so
+    // VoiceInput.jsx can play the fade-out animation.
+    const data = typeof payload === 'string' ? { message: payload } : payload
+    setToast({ ...data, id: Date.now() })
+    toastTimerRef.current = setTimeout(() => setToast(null), 3000)
+  }
+
+  function formatDeadlineRu(iso) {
+    if (!iso) return null
+    const d = new Date(iso + (iso.length === 10 ? 'T00:00:00' : ''))
+    if (isNaN(d.getTime())) return null
+    return d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })
   }
 
   const startListening = useCallback(async () => {
@@ -99,7 +110,10 @@ export function VoiceInputProvider({ children }) {
     recognitionRef.current = rec
     rec.lang = 'ru-RU'
     rec.continuous     = !isIOS // iOS Safari is unreliable with continuous mode
-    rec.interimResults = true
+    // Interim results are intentionally OFF — we surface only the cleaned
+    // transcript from Claude after the user releases the button. Showing
+    // raw interim text mid-recording is noisy and confusing.
+    rec.interimResults = false
     rec.maxAlternatives = 1
 
     finalRef.current = ''
@@ -107,13 +121,11 @@ export function VoiceInputProvider({ children }) {
     setErrorMsg('')
 
     rec.onresult = (e) => {
-      let interim = ''
+      // Don't surface interim text — we only show the cleaned transcript
+      // after Claude has processed the final audio (see processAndCreate).
       for (let i = e.resultIndex; i < e.results.length; i++) {
-        const t = e.results[i][0].transcript
-        if (e.results[i].isFinal) finalRef.current += t
-        else interim += t
+        if (e.results[i].isFinal) finalRef.current += e.results[i][0].transcript
       }
-      setTranscript(finalRef.current + interim)
     }
 
     rec.onerror = (e) => {
@@ -183,6 +195,19 @@ export function VoiceInputProvider({ children }) {
 
     const createdTask = Array.isArray(result.data) ? result.data[0] : result.data
 
+    // Resolve human-readable bits for the toast card (project name,
+    // assignee name, formatted deadline). Hidden when not present so the
+    // card stays compact.
+    const projectName = project_id
+      ? (projects.find(p => p.id === project_id)?.name ?? null)
+      : null
+    const recipient    = team.find(u => u.id === finalAssignee)
+    const assigneeName = isDelegated
+      ? (recipient?.full_name || recipient?.email || 'исполнителю')
+      : null
+    const deadlineText = formatDeadlineRu(deadline)
+    const headline     = isDelegated ? '✓ Задача отправлена' : '✓ Задача создана'
+
     if (isDelegated) {
       const notifRes = await supabaseRest('notifications', {
         method: 'POST',
@@ -194,12 +219,16 @@ export function VoiceInputProvider({ children }) {
         },
       })
       if (notifRes.error) console.warn('[Voice] notification insert failed:', notifRes.error)
-      const recipient = team.find(u => u.id === finalAssignee)
-      const name = recipient?.full_name || recipient?.email || 'исполнителю'
-      showToast(`✓ Задача отправлена ${name}`)
-    } else {
-      showToast(`✓ Задача создана: ${title}`)
     }
+
+    showToast({
+      kind: 'task-created',
+      headline,
+      title,
+      projectName,
+      assigneeName,
+      deadlineText,
+    })
 
     window.dispatchEvent(new CustomEvent('voiceTaskCreated'))
     if (createdTask?.id) syncTaskToGoogleCalendar(createdTask.id)
@@ -218,7 +247,12 @@ export function VoiceInputProvider({ children }) {
       const parsed = await res.json()
       if (!res.ok) throw new Error(parsed.error ?? 'Ошибка сервера')
 
-      const title = (parsed.title ?? '').trim() || text
+      // Surface the cleaned transcript (fillers removed, errors fixed) once
+      // we have it — this is the user's "what I said" feedback.
+      const cleaned = (parsed.cleaned ?? '').trim() || text
+      setTranscript(cleaned)
+
+      const title = (parsed.title ?? '').trim() || cleaned
       const confidence = Number.isFinite(parsed.confidence) ? parsed.confidence : 0.5
       const needsClarification = !parsed.assigned_to || confidence < 0.7
 
@@ -230,9 +264,8 @@ export function VoiceInputProvider({ children }) {
           project_id:  parsed.project_id  ?? null,
           deadline:    parsed.deadline    ?? null,
           confidence,
-          voice_text:  text,
+          voice_text:  cleaned,
         })
-        setTranscript('')
         setState(S.IDLE)
         return
       }
@@ -243,9 +276,8 @@ export function VoiceInputProvider({ children }) {
         assigned_to: parsed.assigned_to,
         project_id:  parsed.project_id,
         deadline:    parsed.deadline,
-        voice_text:  text,
+        voice_text:  cleaned,
       })
-      setTranscript('')
       setState(S.IDLE)
     } catch (err) {
       console.error('[Voice] processAndCreate:', err)

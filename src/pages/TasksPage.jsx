@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom'
 import { supabaseRest, getCurrentUser } from '../lib/supabase'
 import { syncTaskToGoogleCalendar } from '../lib/googleCalendar'
 import { toggleTaskDone, setTaskStatus } from '../lib/taskActions'
+import { taskVisibilityFilter } from '../lib/taskAccess'
 import { useAuth } from '../hooks/useAuth'
 import { useTaskRealtime } from '../hooks/useTaskRealtime'
 import { descriptionPreview } from '../lib/description'
@@ -76,13 +77,13 @@ export default function TasksPage() {
     if (!user?.id) return
     loadAll()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.id, tab, tabDate])
+  }, [user?.id, profile?.role, tab, tabDate])
 
   useTaskRealtime({
     channelName: 'tasks-page-rt',
     enabled:     !!user?.id,
     refresh:     loadAll,
-    deps:        [user?.id, tab, tabDate],
+    deps:        [user?.id, profile?.role, tab, tabDate],
   })
 
   // Sync URL ?date= → state when external link opens this page
@@ -111,13 +112,16 @@ export default function TasksPage() {
       if (tab === 'today') {
         taskFilters.push(`created_at=gte.${tabDate}T00:00:00`)
         taskFilters.push(`created_at=lt.${nextDayStr(tabDate)}T00:00:00`)
+        taskFilters.push(...taskVisibilityFilter(user, profile))
       } else if (tab === 'inbox') {
         taskFilters.push(`assignee_id=eq.${user.id}`)
       } else if (tab === 'sent') {
         taskFilters.push(`created_by=eq.${user.id}`)
         taskFilters.push(`assignee_id=neq.${user.id}`)
+      } else {
+        // 'all' tab — admins see every task; members see only their own
+        taskFilters.push(...taskVisibilityFilter(user, profile))
       }
-      // 'all' — no extra filter; RLS allows admins to see everything
 
       const [tasksRes, projectsRes, profilesRes] = await Promise.all([
         supabaseRest('tasks', { select: '*,projects(name,color)', filters: taskFilters }),
