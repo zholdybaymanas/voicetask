@@ -10,7 +10,6 @@ const S = { IDLE: 'idle', LISTENING: 'listening', PROCESSING: 'processing', ERRO
 export function VoiceInputProvider({ children }) {
   const [state,    setState]    = useState(S.IDLE)
   const [errorMsg, setErrorMsg] = useState('')
-  const [transcript, setTranscript] = useState('')
   const [toast,    setToast]    = useState(null)
   const [projects, setProjects] = useState([])
   const [team,     setTeam]     = useState([])
@@ -109,28 +108,29 @@ export function VoiceInputProvider({ children }) {
     const rec = new SR()
     recognitionRef.current = rec
     rec.lang = 'ru-RU'
-    rec.continuous     = !isIOS // iOS Safari is unreliable with continuous mode
-    // Interim results are intentionally OFF — we surface only the cleaned
-    // transcript from Claude after the user releases the button. Showing
-    // raw interim text mid-recording is noisy and confusing.
+    // Continuous mode + auto-restart in onend (below) keeps recognition
+    // running for the whole hold, even on iOS Safari which silently stops
+    // mid-utterance. Stop is driven by user releasing the button.
+    rec.continuous     = true
     rec.interimResults = false
     rec.maxAlternatives = 1
 
     finalRef.current = ''
-    setTranscript('')
     setErrorMsg('')
 
     rec.onresult = (e) => {
-      // Don't surface interim text — we only show the cleaned transcript
-      // after Claude has processed the final audio (see processAndCreate).
+      // Only finals — we never display interim text. Accumulate into
+      // finalRef so multiple onend→start cycles aggregate one transcript.
       for (let i = e.resultIndex; i < e.results.length; i++) {
-        if (e.results[i].isFinal) finalRef.current += e.results[i][0].transcript
+        if (e.results[i].isFinal) finalRef.current += e.results[i][0].transcript + ' '
       }
     }
 
     rec.onerror = (e) => {
       // 'aborted' fires when we call .stop() — treat as normal stop, not error
-      // 'no-speech' fires when nothing was said — also non-fatal
+      // 'no-speech' fires when SR couldn't pick up audio yet — non-fatal,
+      //   onend will follow and the auto-restart loop keeps the session alive
+      //   until the user releases the button.
       if (e.error === 'aborted' || e.error === 'no-speech') return
       const msgs = {
         'not-allowed':         'Нет доступа к микрофону — разрешите его в браузере',
@@ -138,20 +138,31 @@ export function VoiceInputProvider({ children }) {
         'network':             'Ошибка сети при распознавании',
         'audio-capture':       'Не удалось захватить звук с микрофона',
       }
+      // Mark wants=false so the restart loop in onend doesn't fight the error.
+      wantsListeningRef.current = false
       setErrorMsg(msgs[e.error] ?? `Ошибка распознавания: ${e.error}`)
       setState(S.ERROR)
     }
 
     rec.onend = () => {
+      // If the user is still holding the button, SR ended on its own —
+      // restart it. This is the workaround for iOS Safari (and silence
+      // timeouts on Chrome) that auto-stops despite continuous=true.
+      if (wantsListeningRef.current) {
+        try {
+          rec.start()
+          return
+        } catch (err) {
+          // start() can throw if called too quickly — fall through to finish.
+          console.warn('[Voice] auto-restart failed:', err)
+        }
+      }
+      // User released → process accumulated text.
       const text = finalRef.current.trim()
       finalRef.current = ''
       recognitionRef.current = null
-      if (text) {
-        processAndCreate(text)
-      } else {
-        setState(S.IDLE)
-        setTranscript('')
-      }
+      if (text) processAndCreate(text)
+      else     setState(S.IDLE)
     }
 
     setState(S.LISTENING)
@@ -247,11 +258,10 @@ export function VoiceInputProvider({ children }) {
       const parsed = await res.json()
       if (!res.ok) throw new Error(parsed.error ?? 'Ошибка сервера')
 
-      // Surface the cleaned transcript (fillers removed, errors fixed) once
-      // we have it — this is the user's "what I said" feedback.
+      // The cleaned transcript (fillers removed, errors fixed) is what we
+      // store on the task. We never show it on screen — the toast is the
+      // only post-recording feedback.
       const cleaned = (parsed.cleaned ?? '').trim() || text
-      setTranscript(cleaned)
-
       const title = (parsed.title ?? '').trim() || cleaned
       const confidence = Number.isFinite(parsed.confidence) ? parsed.confidence : 0.5
       const needsClarification = !parsed.assigned_to || confidence < 0.7
@@ -283,7 +293,6 @@ export function VoiceInputProvider({ children }) {
       console.error('[Voice] processAndCreate:', err)
       setErrorMsg(err.message)
       setState(S.ERROR)
-      setTranscript('')
     }
   }
 
@@ -319,7 +328,6 @@ export function VoiceInputProvider({ children }) {
     }
     setState(S.IDLE)
     setErrorMsg('')
-    setTranscript('')
   }, [])
 
   // Allow other code (Dashboard CTA, shortcuts) to start the FAB.
@@ -332,7 +340,7 @@ export function VoiceInputProvider({ children }) {
   }, [state, startListening])
 
   const value = {
-    state, errorMsg, transcript, toast,
+    state, errorMsg, toast,
     isListening:  state === S.LISTENING,
     isProcessing: state === S.PROCESSING,
     isError:      state === S.ERROR,

@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useState } from 'react'
 import { useAuth } from '../hooks/useAuth'
 import { useVoiceInput } from '../contexts/VoiceInputContext'
 import { isIOS, isSafari, isStandalonePWA } from '../lib/platform'
@@ -12,47 +12,24 @@ function getGreeting(name) {
 export default function HomePage() {
   const { profile, user } = useAuth()
   const {
-    state, transcript, errorMsg,
+    state, errorMsg,
     isListening, isProcessing,
     startListening, stopListening,
   } = useVoiceInput()
 
   const displayName = profile?.full_name || user?.email?.split('@')[0] || ''
 
-  // Track the pointer type of the active press so we know whether to treat
-  // pointerup as a hold-release (touch/pen) or ignore it in favor of click (mouse).
-  const activePointerTypeRef = useRef(null)
-
+  // Hold-to-record only — pointer events drive the entire lifecycle.
+  // No click/tap toggle: pressing starts, releasing stops.
   function handlePointerDown(e) {
-    if (isProcessing) return
-    activePointerTypeRef.current = e.pointerType
-    if (e.pointerType === 'mouse') return // mouse uses click-to-toggle below
     e.preventDefault()
-    if (!isListening) startListening()
+    if (isProcessing || isListening) return
+    startListening()
   }
 
-  function handlePointerUp(e) {
-    if (activePointerTypeRef.current === 'mouse') {
-      activePointerTypeRef.current = null
-      return
-    }
-    activePointerTypeRef.current = null
+  function handleRelease(e) {
+    e.preventDefault?.()
     if (isListening) stopListening()
-  }
-
-  function handlePointerCancel() {
-    if (activePointerTypeRef.current && activePointerTypeRef.current !== 'mouse') {
-      if (isListening) stopListening()
-    }
-    activePointerTypeRef.current = null
-  }
-
-  function handleClick() {
-    // Click only fires for mouse-style pointers (touch never reaches this
-    // because we preventDefault on pointerdown). Toggle behavior on desktop.
-    if (isProcessing) return
-    if (isListening) stopListening()
-    else startListening()
   }
 
   const hint = isProcessing
@@ -60,8 +37,6 @@ export default function HomePage() {
     : isListening
       ? 'Отпустите, чтобы закончить'
       : 'Нажмите и удерживайте, чтобы записать'
-
-  const showTranscript = !isListening && transcript
 
   return (
     <div className="flex flex-col items-center justify-center text-center px-4 h-full min-h-[calc(100dvh-7rem)] sm:min-h-[calc(100dvh-3.5rem)] overflow-hidden">
@@ -74,13 +49,12 @@ export default function HomePage() {
 
       <button
         onPointerDown={handlePointerDown}
-        onPointerUp={handlePointerUp}
-        onPointerCancel={handlePointerCancel}
-        onPointerLeave={handlePointerCancel}
-        onClick={handleClick}
+        onPointerUp={handleRelease}
+        onPointerCancel={handleRelease}
+        onPointerLeave={handleRelease}
         onContextMenu={(e) => e.preventDefault()}
         disabled={isProcessing}
-        aria-label="Голосовая задача"
+        aria-label="Голосовая задача (удерживайте для записи)"
         style={{ touchAction: 'none', WebkitUserSelect: 'none', WebkitTouchCallout: 'none' }}
         className={`
           relative w-32 h-32 sm:w-40 sm:h-40 rounded-full
@@ -108,18 +82,6 @@ export default function HomePage() {
       </button>
 
       <p className="text-xs sm:text-sm text-muted mt-6 min-h-[1.25rem]">{hint}</p>
-
-      {/* Transcript shown only after recording ends, with a fade-in. */}
-      <div className="mt-6 sm:mt-8 max-w-md w-full min-h-[3rem]">
-        {showTranscript ? (
-          <p
-            key={transcript}
-            className="text-sm sm:text-base text-text leading-relaxed break-words transcript-fade-in"
-          >
-            {transcript}
-          </p>
-        ) : null}
-      </div>
 
       {/* Inline error (in addition to global modal from VoiceInput) */}
       {state === 'error' && errorMsg && (

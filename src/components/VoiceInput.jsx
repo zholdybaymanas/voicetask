@@ -6,7 +6,6 @@
 import { useState, useEffect } from 'react'
 import { useLocation } from 'react-router-dom'
 import { useVoiceInput } from '../contexts/VoiceInputContext'
-import { isTouchDevice } from '../lib/platform'
 
 export default function VoiceInput() {
   const location = useLocation()
@@ -14,26 +13,17 @@ export default function VoiceInput() {
   const { state, errorMsg, toast, isListening, isProcessing,
           startListening, stopListening, reset } = useVoiceInput()
 
-  const fabLabel = isListening ? 'Остановить' : isProcessing ? 'Обработка...' : null
+  const fabLabel = isListening ? 'Удерживайте для записи' : isProcessing ? 'Обработка...' : null
 
-  // Touch: hold to record. Mouse: click to toggle. Avoid double-fire by
-  // using onTouchStart/End on touch devices and onClick on others.
-  const touchHandlers = isTouchDevice ? {
-    onTouchStart: (e) => {
-      e.preventDefault()
-      if (!isProcessing && !isListening) startListening()
-    },
-    onTouchEnd: (e) => {
-      e.preventDefault()
-      if (isListening) stopListening()
-    },
-    onTouchCancel: () => { if (isListening) stopListening() },
-  } : {}
-
-  const clickHandler = isTouchDevice ? () => {} : () => {
-    if (isProcessing) return
+  // Hold-to-record on every pointer type — no click toggle.
+  function fabPointerDown(e) {
+    e.preventDefault()
+    if (isProcessing || isListening) return
+    startListening()
+  }
+  function fabRelease(e) {
+    e.preventDefault?.()
     if (isListening) stopListening()
-    else startListening()
   }
 
   return (
@@ -95,13 +85,17 @@ export default function VoiceInput() {
           </span>
 
           <button
-            {...touchHandlers}
-            onClick={clickHandler}
+            onPointerDown={fabPointerDown}
+            onPointerUp={fabRelease}
+            onPointerCancel={fabRelease}
+            onPointerLeave={fabRelease}
+            onContextMenu={(e) => e.preventDefault()}
             disabled={isProcessing}
-            aria-label="Голосовая задача"
+            aria-label="Голосовая задача (удерживайте для записи)"
+            style={{ touchAction: 'none', WebkitUserSelect: 'none', WebkitTouchCallout: 'none' }}
             className={`
               relative w-14 h-14 rounded-full flex items-center justify-center
-              transition-colors duration-200
+              transition-colors duration-200 select-none
               disabled:opacity-60 disabled:cursor-not-allowed
               ${isListening
                 ? 'mic-active-pulse bg-red-500 hover:bg-red-600 shadow-xl'
