@@ -1,8 +1,10 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { supabase, supabaseRest, supabasePatch, getCurrentUser } from '../lib/supabase'
+import { supabaseRest, getCurrentUser } from '../lib/supabase'
 import { syncTaskToGoogleCalendar } from '../lib/googleCalendar'
+import { toggleTaskDone, setTaskStatus } from '../lib/taskActions'
 import { useAuth } from '../hooks/useAuth'
+import { useTaskRealtime } from '../hooks/useTaskRealtime'
 import { descriptionPreview } from '../lib/description'
 import TaskDetailDrawer from '../components/TaskDetailDrawer'
 import TaskCheck from '../components/TaskCheck'
@@ -73,16 +75,15 @@ export default function TasksPage() {
   useEffect(() => {
     if (!user?.id) return
     loadAll()
-    const silentReload = () => loadAll({ silent: true })
-    window.addEventListener('voiceTaskCreated', silentReload)
-    const ch = supabase.channel('tasks-rt')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks' }, silentReload)
-      .subscribe()
-    return () => {
-      window.removeEventListener('voiceTaskCreated', silentReload)
-      supabase.removeChannel(ch)
-    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id, tab, tabDate])
+
+  useTaskRealtime({
+    channelName: 'tasks-page-rt',
+    enabled:     !!user?.id,
+    refresh:     loadAll,
+    deps:        [user?.id, tab, tabDate],
+  })
 
   // Sync URL ?date= → state when external link opens this page
   useEffect(() => {
@@ -137,31 +138,8 @@ export default function TasksPage() {
     }
   }
 
-  async function quickToggleDone(task) {
-    const nextStatus = task.status === 'done' ? 'pending' : 'done'
-    setTasks(prev => prev.map(t => t.id === task.id ? { ...t, status: nextStatus } : t))
-    const { error } = await supabasePatch('tasks', task.id, { status: nextStatus })
-    if (error) {
-      console.error('[TasksPage] quickToggleDone:', error)
-      setTasks(prev => prev.map(t => t.id === task.id ? { ...t, status: task.status } : t))
-      return
-    }
-    syncTaskToGoogleCalendar(task.id)
-  }
-
-  async function updateStatus(id, status) {
-    const prev = tasks.find(t => t.id === id)
-    if (!prev) return
-    // Optimistic — apply locally first, roll back on error.
-    setTasks(curr => curr.map(t => t.id === id ? { ...t, status } : t))
-    const { error } = await supabasePatch('tasks', id, { status })
-    if (error) {
-      console.error('[TasksPage] updateStatus:', error)
-      setTasks(curr => curr.map(t => t.id === id ? { ...t, status: prev.status } : t))
-      return
-    }
-    syncTaskToGoogleCalendar(id)
-  }
+  function quickToggleDone(task)   { return toggleTaskDone(task, setTasks) }
+  function updateStatus(id, status) { return setTaskStatus(id, status, setTasks) }
 
   function applyTaskUpdate(updated) {
     setTasks(prev => prev.map(t => t.id === updated.id ? { ...t, ...updated, projects: t.projects } : t))
@@ -173,15 +151,21 @@ export default function TasksPage() {
 
   const today = new Date().toISOString().split('T')[0]
 
-  const filtered = tasks.filter(t => {
+  const filtered = useMemo(() => tasks.filter(t => {
     if (filterProject  && t.project_id  !== filterProject)  return false
     if (filterStatus   && t.status      !== filterStatus)   return false
     if (filterAssignee && t.assignee_id !== filterAssignee) return false
     return true
-  })
+  }), [tasks, filterProject, filterStatus, filterAssignee])
 
-  const assigneeById = Object.fromEntries(team.map(u => [u.id, u]))
-  const selectedTask = tasks.find(t => t.id === selectedId) ?? null
+  const assigneeById = useMemo(
+    () => Object.fromEntries(team.map(u => [u.id, u])),
+    [team],
+  )
+  const selectedTask = useMemo(
+    () => tasks.find(t => t.id === selectedId) ?? null,
+    [tasks, selectedId],
+  )
 
   const todayLabel = tabDate === todayStr() ? 'За сегодня' : `За ${formatShort(tabDate)}`
   const tabs = [

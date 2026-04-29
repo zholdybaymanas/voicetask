@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { Link, useParams, useNavigate } from 'react-router-dom'
-import { supabase, supabaseRest, supabasePatch } from '../lib/supabase'
+import { supabase, supabaseRest } from '../lib/supabase'
+import { toggleTaskDone } from '../lib/taskActions'
 import { useAuth } from '../hooks/useAuth'
 import { descriptionPreview } from '../lib/description'
 import TaskDetailDrawer from '../components/TaskDetailDrawer'
@@ -82,15 +83,7 @@ export default function ProjectDetailPage() {
     }
   }
 
-  async function quickToggleDone(task) {
-    const nextStatus = task.status === 'done' ? 'pending' : 'done'
-    setTasks(prev => prev.map(t => t.id === task.id ? { ...t, status: nextStatus } : t))
-    const { error } = await supabasePatch('tasks', task.id, { status: nextStatus })
-    if (error) {
-      console.error('[ProjectDetail] quickToggleDone:', error)
-      setTasks(prev => prev.map(t => t.id === task.id ? { ...t, status: task.status } : t))
-    }
-  }
+  function quickToggleDone(task) { return toggleTaskDone(task, setTasks) }
 
   function applyTaskUpdate(updated) {
     setTasks(prev => prev.map(t => t.id === updated.id ? { ...t, ...updated, profiles: t.profiles } : t))

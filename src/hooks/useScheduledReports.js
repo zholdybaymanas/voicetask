@@ -1,4 +1,5 @@
 import { useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 
 const DAILY_KEY  = 'voicetask:lastDailyReport'   // value: YYYY-MM-DD
 const WEEKLY_KEY = 'voicetask:lastWeeklyReport'  // value: YYYY-Wnn
@@ -25,45 +26,6 @@ function weekKey(d = new Date()) {
   return `${t.getUTCFullYear()}-W${String(weekNo).padStart(2, '0')}`
 }
 
-// Notification body is intentionally a teaser — actual numbers are
-// shown on the destination page after click. This way an "empty"
-// weekend / holiday looks normal instead of awkwardly saying 0/0.
-function showDailyReport() {
-  const today = todayStr()
-  try {
-    const notif = new Notification('VoiceTask', {
-      body: 'Ваш отчёт за день готов',
-      icon: '/icons/icon-192x192.svg',
-      tag:  `daily-${today}`,
-    })
-    notif.onclick = () => {
-      window.focus()
-      window.location.href = `/tasks?date=${today}`
-    }
-    localStorage.setItem(DAILY_KEY, today)
-  } catch (err) {
-    console.error('[reports] daily notification:', err)
-  }
-}
-
-function showWeeklyReport() {
-  const wk = weekKey()
-  try {
-    const notif = new Notification('VoiceTask', {
-      body: 'Ваш отчёт за неделю готов',
-      icon: '/icons/icon-192x192.svg',
-      tag:  `weekly-${wk}`,
-    })
-    notif.onclick = () => {
-      window.focus()
-      window.location.href = '/reports?period=week'
-    }
-    localStorage.setItem(WEEKLY_KEY, wk)
-  } catch (err) {
-    console.error('[reports] weekly notification:', err)
-  }
-}
-
 function isEnabled(key) {
   // Toggles set in /settings. Stored as 'on' / 'off'. Missing = enabled.
   try {
@@ -72,28 +34,9 @@ function isEnabled(key) {
   } catch { return true }
 }
 
-function maybeShowDaily() {
-  if (!isEnabled('voicetask:notif:daily')) return false
-  const now = new Date()
-  if (now.getHours() < DAILY_HOUR) return false
-  const today = todayStr(now)
-  if (localStorage.getItem(DAILY_KEY) === today) return false
-  showDailyReport()
-  return true
-}
-
-function maybeShowWeekly() {
-  if (!isEnabled('voicetask:notif:weekly')) return false
-  const now = new Date()
-  if (now.getDay() !== WEEKLY_DOW) return false
-  if (now.getHours() < WEEKLY_HOUR) return false
-  const wk = weekKey(now)
-  if (localStorage.getItem(WEEKLY_KEY) === wk) return false
-  showWeeklyReport()
-  return true
-}
-
 export function useScheduledReports(userId) {
+  const navigate = useNavigate()
+
   useEffect(() => {
     if (!userId) return
     if (typeof window === 'undefined' || typeof Notification === 'undefined') return
@@ -101,52 +44,105 @@ export function useScheduledReports(userId) {
     let dailyTimer = null
     let weeklyTimer = null
 
+    // Notifications navigate via React Router (no full page reload).
+    // window.focus() still fires to surface a backgrounded tab.
+    function showDailyReport() {
+      const today = todayStr()
+      try {
+        const notif = new Notification('VoiceTask', {
+          body: 'Ваш отчёт за день готов',
+          icon: '/icons/icon-192x192.svg',
+          tag:  `daily-${today}`,
+        })
+        notif.onclick = () => {
+          window.focus()
+          navigate(`/tasks?date=${today}`)
+          notif.close()
+        }
+        localStorage.setItem(DAILY_KEY, today)
+      } catch (err) {
+        console.error('[reports] daily notification:', err)
+      }
+    }
+
+    function showWeeklyReport() {
+      const wk = weekKey()
+      try {
+        const notif = new Notification('VoiceTask', {
+          body: 'Ваш отчёт за неделю готов',
+          icon: '/icons/icon-192x192.svg',
+          tag:  `weekly-${wk}`,
+        })
+        notif.onclick = () => {
+          window.focus()
+          navigate('/reports?period=week')
+          notif.close()
+        }
+        localStorage.setItem(WEEKLY_KEY, wk)
+      } catch (err) {
+        console.error('[reports] weekly notification:', err)
+      }
+    }
+
+    function maybeShowDaily() {
+      if (!isEnabled('voicetask:notif:daily')) return false
+      const now = new Date()
+      if (now.getHours() < DAILY_HOUR) return false
+      const today = todayStr(now)
+      if (localStorage.getItem(DAILY_KEY) === today) return false
+      showDailyReport()
+      return true
+    }
+
+    function maybeShowWeekly() {
+      if (!isEnabled('voicetask:notif:weekly')) return false
+      const now = new Date()
+      if (now.getDay() !== WEEKLY_DOW) return false
+      if (now.getHours() < WEEKLY_HOUR) return false
+      const wk = weekKey(now)
+      if (localStorage.getItem(WEEKLY_KEY) === wk) return false
+      showWeeklyReport()
+      return true
+    }
+
     const start = () => {
       if (Notification.permission !== 'granted') return
-      // Check immediately on app load
       maybeShowDaily()
       maybeShowWeekly()
 
-      // Schedule today's 18:00 if it hasn't passed yet
       const now = new Date()
       const today18 = new Date(now)
       today18.setHours(DAILY_HOUR, 0, 0, 0)
       if (now < today18) {
-        dailyTimer = setTimeout(() => maybeShowDaily(), today18 - now)
+        dailyTimer = setTimeout(maybeShowDaily, today18 - now)
       }
 
-      // Schedule next Friday 17:00 if before that this week
       const nextFriday = new Date(now)
       const daysToFriday = (WEEKLY_DOW - now.getDay() + 7) % 7
       nextFriday.setDate(now.getDate() + (daysToFriday || (now.getHours() < WEEKLY_HOUR ? 0 : 7)))
       nextFriday.setHours(WEEKLY_HOUR, 0, 0, 0)
       if (nextFriday > now) {
-        weeklyTimer = setTimeout(() => maybeShowWeekly(), nextFriday - now)
+        weeklyTimer = setTimeout(maybeShowWeekly, nextFriday - now)
       }
     }
 
-    // Ask permission on first authed load (delay a bit so it doesn't surprise users)
-    const askIfNeeded = () => {
-      if (Notification.permission === 'granted') {
-        start()
-      } else if (Notification.permission === 'default'
-                 && !localStorage.getItem(PERMISSION_ASKED_KEY)) {
-        const t = setTimeout(() => {
-          localStorage.setItem(PERMISSION_ASKED_KEY, '1')
-          Notification.requestPermission().then(p => {
-            if (p === 'granted') start()
-          }).catch(() => {})
-        }, 3000)
-        return () => clearTimeout(t)
-      }
+    let permissionTimer = null
+    if (Notification.permission === 'granted') {
+      start()
+    } else if (Notification.permission === 'default'
+               && !localStorage.getItem(PERMISSION_ASKED_KEY)) {
+      permissionTimer = setTimeout(() => {
+        localStorage.setItem(PERMISSION_ASKED_KEY, '1')
+        Notification.requestPermission().then(p => {
+          if (p === 'granted') start()
+        }).catch(() => {})
+      }, 3000)
     }
-
-    const cleanup = askIfNeeded()
 
     return () => {
-      cleanup?.()
-      if (dailyTimer)  clearTimeout(dailyTimer)
-      if (weeklyTimer) clearTimeout(weeklyTimer)
+      if (dailyTimer)      clearTimeout(dailyTimer)
+      if (weeklyTimer)     clearTimeout(weeklyTimer)
+      if (permissionTimer) clearTimeout(permissionTimer)
     }
-  }, [userId])
+  }, [userId, navigate])
 }

@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react'
 import { supabaseRest, getCurrentUser, getAuthHeader } from '../lib/supabase'
 import { syncTaskToGoogleCalendar } from '../lib/googleCalendar'
+import { isIOS } from '../lib/platform'
 
 const Ctx = createContext(null)
 
@@ -45,9 +46,6 @@ export function VoiceInputProvider({ children }) {
 
   const startListening = useCallback(async () => {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition
-
-    const ua = navigator.userAgent || ''
-    const isIOS = /iPad|iPhone|iPod/.test(ua)
 
     if (!SR) {
       if (isIOS) {

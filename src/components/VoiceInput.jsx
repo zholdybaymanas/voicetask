@@ -6,9 +6,7 @@
 import { useState, useEffect } from 'react'
 import { useLocation } from 'react-router-dom'
 import { useVoiceInput } from '../contexts/VoiceInputContext'
-
-const isTouchDevice = typeof window !== 'undefined'
-  && ('ontouchstart' in window || (navigator.maxTouchPoints ?? 0) > 0)
+import { isTouchDevice } from '../lib/platform'
 
 export default function VoiceInput() {
   const location = useLocation()

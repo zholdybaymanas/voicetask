@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom'
 import { useAuth } from './hooks/useAuth'
 import { ThemeProvider } from './contexts/ThemeContext'
+import { ToastProvider } from './contexts/ToastContext'
 import { VoiceInputProvider } from './contexts/VoiceInputContext'
 import AuthPage from './pages/AuthPage'
 import Layout from './components/Layout'
@@ -37,6 +38,7 @@ export default function App() {
   return (
     <ThemeProvider>
       <BrowserRouter>
+        <ToastProvider>
         <VoiceInputProvider>
           <Routes>
             <Route element={<PublicRoute />}>
@@ -59,6 +61,7 @@ export default function App() {
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </VoiceInputProvider>
+        </ToastProvider>
       </BrowserRouter>
     </ThemeProvider>
   )

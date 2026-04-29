@@ -3,6 +3,7 @@
 // Failures (no integration, network, expired tokens) shouldn't block
 // the main task-creation flow.
 import { supabase } from './supabase'
+import { emitToast } from '../contexts/ToastContext'
 
 async function authHeader() {
   // Pull a fresh access token from the Supabase client. This auto-refreshes
@@ -60,7 +61,14 @@ export async function syncTaskToGoogleCalendar(taskId) {
       body: JSON.stringify({ task_id: taskId }),
     })
     const data = await res.json().catch(() => ({}))
-    if (!res.ok) console.warn('[gcal] sync-task failed:', data)
+    if (!res.ok) {
+      console.warn('[gcal] sync-task failed:', data)
+      // Surface only when the integration is actively failing — skip the
+      // common "not connected" / "no deadline" expected paths.
+      if (res.status === 401 || res.status === 502) {
+        emitToast(`Google Calendar: ${data.error ?? 'не удалось обновить событие'}`, 'error')
+      }
+    }
     return data
   } catch (err) {
     console.warn('[gcal] sync-task threw:', err)

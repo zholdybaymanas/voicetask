@@ -8,8 +8,9 @@ import {
   SortableContext, useSortable, verticalListSortingStrategy, arrayMove,
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { supabase, supabaseRest, supabasePatch, getCurrentUser } from '../lib/supabase'
+import { supabaseRest, supabasePatch, getCurrentUser } from '../lib/supabase'
 import { syncTaskToGoogleCalendar } from '../lib/googleCalendar'
+import { useTaskRealtime } from '../hooks/useTaskRealtime'
 import { useAuth } from '../hooks/useAuth'
 import { descriptionPreview } from '../lib/description'
 import TaskDetailDrawer from '../components/TaskDetailDrawer'
@@ -68,17 +69,15 @@ export default function KanbanPage({ projectFilter = null } = {}) {
   useEffect(() => {
     if (!user?.id) return
     loadAll()
-    const silentReload = () => loadAll({ silent: true })
-    window.addEventListener('voiceTaskCreated', silentReload)
-    const channelName = projectFilter ? `kanban-rt-${projectFilter}` : 'kanban-rt'
-    const ch = supabase.channel(channelName)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks' }, silentReload)
-      .subscribe()
-    return () => {
-      window.removeEventListener('voiceTaskCreated', silentReload)
-      supabase.removeChannel(ch)
-    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id, projectFilter])
+
+  useTaskRealtime({
+    channelName: projectFilter ? `kanban-rt-${projectFilter}` : 'kanban-rt',
+    enabled:     !!user?.id,
+    refresh:     loadAll,
+    deps:        [user?.id, projectFilter],
+  })
 
   async function loadAll({ silent = false } = {}) {
     if (!user?.id) return

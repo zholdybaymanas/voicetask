@@ -1,9 +1,7 @@
 import { useState } from 'react'
 import { useAuth } from '../hooks/useAuth'
 import { useVoiceInput } from '../contexts/VoiceInputContext'
-
-const isTouchDevice = typeof window !== 'undefined'
-  && ('ontouchstart' in window || (navigator.maxTouchPoints ?? 0) > 0)
+import { isTouchDevice, isIOS, isSafari, isStandalonePWA } from '../lib/platform'
 
 function getGreeting(name) {
   const h = new Date().getHours()
@@ -112,16 +110,8 @@ function IOSInstallHint() {
     try { return localStorage.getItem(IOS_HINT_KEY) === '1' } catch { return false }
   })
 
-  if (typeof window === 'undefined' || dismissed) return null
-
-  const ua = navigator.userAgent || ''
-  const isIOS = /iPad|iPhone|iPod/.test(ua)
-  const isSafari = /Safari/.test(ua) && !/Chrome|CriOS|FxiOS|EdgiOS/.test(ua)
-  const isStandalone =
-    (typeof window.matchMedia === 'function' && window.matchMedia('(display-mode: standalone)').matches)
-    || window.navigator.standalone === true
-
-  if (!isIOS || !isSafari || isStandalone) return null
+  if (dismissed) return null
+  if (!isIOS || !isSafari || isStandalonePWA) return null
 
   function close() {
     try { localStorage.setItem(IOS_HINT_KEY, '1') } catch {}
