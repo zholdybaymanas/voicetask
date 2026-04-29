@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { useAuth } from '../hooks/useAuth'
 import { useVoiceInput } from '../contexts/VoiceInputContext'
 
@@ -45,7 +46,7 @@ export default function HomePage() {
       : (isTouchDevice ? 'Удерживайте, чтобы записать' : 'Нажмите, чтобы записать')
 
   return (
-    <div className="flex flex-col items-center justify-center text-center px-4 min-h-[70vh]">
+    <div className="flex flex-col items-center justify-center text-center px-4 h-full overflow-hidden">
       <h1 className="text-2xl sm:text-3xl font-semibold text-text mb-2">
         {getGreeting(displayName)}
       </h1>
@@ -98,6 +99,55 @@ export default function HomePage() {
       {state === 'error' && errorMsg && (
         <p className="mt-4 text-xs text-red-500 max-w-md break-words">{errorMsg}</p>
       )}
+
+      <IOSInstallHint />
+    </div>
+  )
+}
+
+const IOS_HINT_KEY = 'voicetask:iosInstallDismissed'
+
+function IOSInstallHint() {
+  const [dismissed, setDismissed] = useState(() => {
+    try { return localStorage.getItem(IOS_HINT_KEY) === '1' } catch { return false }
+  })
+
+  if (typeof window === 'undefined' || dismissed) return null
+
+  const ua = navigator.userAgent || ''
+  const isIOS = /iPad|iPhone|iPod/.test(ua)
+  const isSafari = /Safari/.test(ua) && !/Chrome|CriOS|FxiOS|EdgiOS/.test(ua)
+  const isStandalone =
+    (typeof window.matchMedia === 'function' && window.matchMedia('(display-mode: standalone)').matches)
+    || window.navigator.standalone === true
+
+  if (!isIOS || !isSafari || isStandalone) return null
+
+  function close() {
+    try { localStorage.setItem(IOS_HINT_KEY, '1') } catch {}
+    setDismissed(true)
+  }
+
+  return (
+    <div className="fixed bottom-4 left-4 right-4 z-40 max-w-md mx-auto pointer-events-auto">
+      <div className="bg-card border border-border shadow-card-hover rounded-xl px-4 py-3 flex items-start gap-3 text-left">
+        <p className="flex-1 text-xs sm:text-sm text-text leading-relaxed">
+          Установите приложение: нажмите{' '}
+          <span className="inline-flex items-center justify-center w-5 h-6 align-middle border border-current rounded text-primary text-sm leading-none">
+            ↑
+          </span>
+          {' '}→ «На экран «Домой»»
+        </p>
+        <button
+          onClick={close}
+          className="text-muted hover:text-text shrink-0 p-0.5 -mr-1 rounded hover:bg-hover"
+          aria-label="Закрыть"
+        >
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
     </div>
   )
 }

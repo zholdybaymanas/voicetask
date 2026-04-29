@@ -113,16 +113,24 @@
                 color 0.15s ease, box-shadow 0.2s ease;
   }
 
+  html, body {
+    /* Fix viewport so iOS doesn't rubber-band on the home screen.
+       Pages that need scrolling have their own overflow-y-auto container
+       in Layout.jsx. */
+    height: 100%;
+    overflow: hidden;
+    overscroll-behavior: none;
+  }
+
   html {
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
-    /* Same colour as body so iOS PWA safe-area + overscroll match the theme */
+    /* Same colour as body so iOS PWA safe-area matches the theme */
     background-color: rgb(var(--bg-rgb));
   }
 
   body {
     @apply bg-bg text-text font-sans;
-    min-height: 100vh;
   }
 }
 
