@@ -313,7 +313,16 @@ function IntegrationsSettings() {
 
   async function connect() {
     if (!user?.id) return
-    startGoogleCalendarConnect(user.id) // full-page redirect
+    setBusy(true)
+    try {
+      await startGoogleCalendarConnect()
+      // ↑ navigates away on success; the line below only runs on error
+    } catch (err) {
+      console.error('[settings] connect:', err)
+      showFlash('err', err.message ?? 'Не удалось начать подключение')
+    } finally {
+      setBusy(false)
+    }
   }
 
   async function disconnect() {

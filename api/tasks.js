@@ -1,16 +1,42 @@
 // POST /api/tasks
 // Body: { transcript: string, projects: [{id, name}], team: [{id, full_name, email}] }
 // Returns: { title, assigned_to, project_id, deadline, confidence }
+// AUTH: requires Authorization: Bearer <Supabase JWT>. Without it the
+//       endpoint is rejected — prevents abuse of the Anthropic API budget.
+import { createClient } from '@supabase/supabase-js'
+
+async function requireAuth(req) {
+  const url = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY
+  if (!url || !key) return null
+  const h = req.headers.authorization || ''
+  const m = h.match(/^Bearer (.+)$/)
+  if (!m) return null
+  const sb = createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } })
+  const { data, error } = await sb.auth.getUser(m[1])
+  if (error || !data?.user) return null
+  return data.user
+}
+
 export default async function handler(req, res) {
   console.log('[api/tasks] method:', req.method)
 
   try {
     if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
 
+    const user = await requireAuth(req)
+    if (!user) return res.status(401).json({ error: 'Unauthorized' })
+
     const { transcript, projects = [], team = [] } = req.body ?? {}
 
-    if (!transcript?.trim()) {
+    if (typeof transcript !== 'string' || !transcript.trim()) {
       return res.status(400).json({ error: 'Нет текста для обработки' })
+    }
+    if (transcript.length > 4000) {
+      return res.status(400).json({ error: 'Слишком длинный текст' })
+    }
+    if (!Array.isArray(projects) || !Array.isArray(team)) {
+      return res.status(400).json({ error: 'Некорректные данные' })
     }
 
     const apiKey = process.env.ANTHROPIC_API_KEY

@@ -90,8 +90,13 @@ async function authUrlAction(req, res) {
   if (!process.env.GOOGLE_CLIENT_ID) {
     return res.status(500).json({ error: 'GOOGLE_CLIENT_ID не настроен на сервере' })
   }
-  const userId = req.query.user_id
-  if (!userId) return res.status(400).json({ error: 'user_id обязателен' })
+  // SECURITY: state must be derived from a verified JWT, not from
+  // the query string. Otherwise attackers can spoof someone else's
+  // user_id and end up storing their own Google tokens under that
+  // victim's row (the victim's task events would sync to the
+  // attacker's calendar).
+  const user = await authedUser(req)
+  if (!user) return res.status(401).json({ error: 'Unauthorized' })
 
   const params = new URLSearchParams({
     client_id:     process.env.GOOGLE_CLIENT_ID,
@@ -100,11 +105,9 @@ async function authUrlAction(req, res) {
     scope:         SCOPES,
     access_type:   'offline',
     prompt:        'consent',
-    state:         userId,
+    state:         user.id,
   })
-  res.statusCode = 302
-  res.setHeader('Location', `${GOOGLE_AUTH_URL}?${params}`)
-  res.end()
+  return res.status(200).json({ url: `${GOOGLE_AUTH_URL}?${params}` })
 }
 
 async function callbackAction(req, res) {

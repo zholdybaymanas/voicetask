@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { supabaseRest } from '../lib/supabase'
+import { supabaseRest, getAuthHeader } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 
 const ROLE_LABEL = { admin: 'Администратор', manager: 'Менеджер', member: 'Участник' }
@@ -49,9 +49,10 @@ export default function TeamPage() {
 
     let res, data
     try {
+      const authHeaders = await getAuthHeader()
       res = await fetch('/api/admin', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
         body: JSON.stringify({
           action:    'createUser',
           email:     form.email.trim(),
@@ -71,6 +72,12 @@ export default function TeamPage() {
     if (!res.ok) {
       console.error('[TeamPage] /api/admin error:', res.status, data)
       const raw = data.error ?? `Ошибка ${res.status}`
+      if (res.status === 403) {
+        return setFormError('Создавать пользователей может только администратор.')
+      }
+      if (res.status === 401) {
+        return setFormError('Сессия истекла. Войдите заново.')
+      }
       if (/SERVICE_ROLE_KEY|SUPABASE_URL/i.test(raw)) {
         return setFormError(
           'Не настроен SUPABASE_SERVICE_ROLE_KEY. Добавьте его в .env (локально) или в Environment Variables в Vercel — см. DEPLOY.md.'
@@ -98,15 +105,17 @@ export default function TeamPage() {
     <div className="space-y-5">
       <div className="flex items-center justify-between gap-3">
         <p className="text-sm text-muted">{members.length} участников</p>
-        <button
-          className="btn-primary flex items-center gap-1.5 text-sm shrink-0"
-          onClick={() => { setModalOpen(true); setFormError(''); setSuccess('') }}
-        >
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-          </svg>
-          Добавить
-        </button>
+        {isAdmin && (
+          <button
+            className="btn-primary flex items-center gap-1.5 text-sm shrink-0"
+            onClick={() => { setModalOpen(true); setFormError(''); setSuccess('') }}
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+            </svg>
+            Добавить
+          </button>
+        )}
       </div>
 
       {loading ? (

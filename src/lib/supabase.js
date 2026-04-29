@@ -35,6 +35,19 @@ function getAccessToken() {
   return getStoredSession()?.access_token || supabaseAnonKey
 }
 
+// Authorization header for hitting our own /api/* endpoints. Pulls a
+// fresh JWT via the Supabase client so the token is auto-refreshed.
+export async function getAuthHeader() {
+  try {
+    const { data } = await supabase.auth.getSession()
+    const token = data?.session?.access_token
+    if (token) return { Authorization: `Bearer ${token}` }
+  } catch {}
+  // Fallback to stored session token (still valid most of the time)
+  const stored = getStoredSession()?.access_token
+  return stored ? { Authorization: `Bearer ${stored}` } : {}
+}
+
 // ─── JWT-expired retry layer ─────────────────────────────────────────────
 // PostgREST returns 401 with body { code: 'PGRST301', message: 'JWT expired' }
 // when the access token has expired but the refresh token is still valid.

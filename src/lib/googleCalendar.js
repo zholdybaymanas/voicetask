@@ -12,10 +12,18 @@ async function authHeader() {
   return token ? { Authorization: `Bearer ${token}` } : {}
 }
 
-export function startGoogleCalendarConnect(userId) {
-  if (!userId) return
-  // Server returns a 302 to Google's OAuth screen — full-page navigation.
-  window.location.href = `/api/google-calendar?action=auth-url&user_id=${userId}`
+export async function startGoogleCalendarConnect() {
+  // Auth-url now requires a valid JWT and derives user_id from it
+  // (so attackers can't spoof someone else's user_id via the query).
+  // Fetch the URL with auth, then navigate.
+  const headers = await authHeader()
+  const res = await fetch('/api/google-calendar?action=auth-url', { headers })
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}))
+    throw new Error(data.error ?? `HTTP ${res.status}`)
+  }
+  const { url } = await res.json()
+  if (url) window.location.href = url
 }
 
 export async function getGoogleCalendarStatus() {

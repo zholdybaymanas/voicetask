@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react'
-import { supabaseRest, getCurrentUser } from '../lib/supabase'
+import { supabaseRest, getCurrentUser, getAuthHeader } from '../lib/supabase'
 import { syncTaskToGoogleCalendar } from '../lib/googleCalendar'
 
 const Ctx = createContext(null)
@@ -211,9 +211,10 @@ export function VoiceInputProvider({ children }) {
   async function processAndCreate(text) {
     setState(S.PROCESSING)
     try {
+      const authHeaders = await getAuthHeader()
       const res = await fetch('/api/tasks', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
         body: JSON.stringify({ transcript: text, projects, team }),
       })
       const parsed = await res.json()
