@@ -13,9 +13,9 @@ import { createContext, useContext, useEffect, useRef, useState } from 'react'
 
 const ToastContext = createContext({ show: () => {} })
 
-export function emitToast(message, kind = 'info') {
+export function emitToast(message, kind = 'info', durationMs) {
   if (typeof window === 'undefined') return
-  window.dispatchEvent(new CustomEvent('app:toast', { detail: { message, kind } }))
+  window.dispatchEvent(new CustomEvent('app:toast', { detail: { message, kind, durationMs } }))
 }
 
 export function useToast() {
@@ -33,18 +33,18 @@ export function ToastProvider({ children }) {
   const [toast, setToast] = useState(null)
   const timerRef = useRef(null)
 
-  function show(message, kind = 'info') {
+  function show(message, kind = 'info', durationMs = 4500) {
     if (!message) return
     clearTimeout(timerRef.current)
     setToast({ message, kind, id: Date.now() })
-    timerRef.current = setTimeout(() => setToast(null), 4500)
+    timerRef.current = setTimeout(() => setToast(null), durationMs)
   }
 
   // Listen for non-React callers
   useEffect(() => {
     function onEvent(e) {
-      const { message, kind } = e.detail ?? {}
-      show(message, kind)
+      const { message, kind, durationMs } = e.detail ?? {}
+      show(message, kind, durationMs)
     }
     window.addEventListener('app:toast', onEvent)
     return () => window.removeEventListener('app:toast', onEvent)

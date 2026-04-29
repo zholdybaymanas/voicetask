@@ -2,8 +2,12 @@ import { useState, useEffect, useRef } from 'react'
 import { supabasePatch, supabaseDelete } from '../lib/supabase'
 import { syncTaskToGoogleCalendar } from '../lib/googleCalendar'
 import { parseDescription, serializeDescription, newSubtaskId } from '../lib/description'
+import { useToast } from '../contexts/ToastContext'
+
+const TEXT_DEBOUNCE_MS = 1000
 
 export default function TaskDetailDrawer({ task, projects, team, onClose, onUpdated, onDeleted }) {
+  const { show: showToast } = useToast()
   const [title, setTitle]         = useState('')
   const [text, setText]           = useState('')
   const [subtasks, setSubtasks]   = useState([])
@@ -61,13 +65,8 @@ export default function TaskDetailDrawer({ task, projects, team, onClose, onUpda
     const syncFields = ['title', 'status', 'due_date']
     if (syncFields.some(f => f in body)) syncTaskToGoogleCalendar(task.id)
 
+    showToast('Сохранено', 'success', 1000)
     return updated
-  }
-
-  function saveTitle() {
-    const trimmed = title.trim()
-    if (!trimmed || trimmed === task.title) return
-    patch({ title: trimmed })
   }
 
   function saveDescription(nextText, nextSubtasks) {
@@ -75,6 +74,29 @@ export default function TaskDetailDrawer({ task, projects, team, onClose, onUpda
     if (next === task.description) return
     patch({ description: next })
   }
+
+  // Debounced autosave for the title field — fires 1s after the user
+  // stops typing. Skips when value matches what's already on the task
+  // (e.g. just-loaded form, or empty).
+  useEffect(() => {
+    if (!task) return
+    const trimmed = title.trim()
+    if (!trimmed || trimmed === task.title) return
+    const t = setTimeout(() => patch({ title: trimmed }), TEXT_DEBOUNCE_MS)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [title, task?.id])
+
+  // Debounced autosave for the description text body. Subtasks save
+  // immediately via saveDescription() when toggled / added / removed.
+  useEffect(() => {
+    if (!task) return
+    const next = serializeDescription(text, subtasks)
+    if (next === task.description) return
+    const t = setTimeout(() => patch({ description: next }), TEXT_DEBOUNCE_MS)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [text, task?.id])
 
   function changeStatus(s) {
     setStatus(s)
@@ -95,10 +117,6 @@ export default function TaskDetailDrawer({ task, projects, team, onClose, onUpda
   function changePriority(p) {
     setPriority(p)
     patch({ priority: p })
-  }
-
-  function closeTask() {
-    changeStatus('done')
   }
 
   async function handleDelete() {
@@ -196,7 +214,6 @@ export default function TaskDetailDrawer({ task, projects, team, onClose, onUpda
             ref={titleRef}
             value={title}
             onChange={e => setTitle(e.target.value)}
-            onBlur={saveTitle}
             onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); titleRef.current?.blur() } }}
             placeholder="Название задачи"
             className="w-full bg-transparent text-lg font-semibold text-text placeholder:text-muted outline-none border-0 px-0 py-0"
@@ -243,7 +260,6 @@ export default function TaskDetailDrawer({ task, projects, team, onClose, onUpda
               rows={3}
               value={text}
               onChange={e => setText(e.target.value)}
-              onBlur={() => saveDescription(text, subtasks)}
               placeholder="Добавить описание…"
             />
           </div>
@@ -321,28 +337,18 @@ export default function TaskDetailDrawer({ task, projects, team, onClose, onUpda
           )}
         </div>
 
-        {/* Footer actions */}
+        {/* Footer — autosave handles persistence; the only actions left
+            are explicitly close-without-saving and delete. */}
         <footer className="border-t border-border px-4 sm:px-5 py-3 flex items-center gap-2 shrink-0">
-          {status !== 'done' ? (
-            <button
-              onClick={closeTask}
-              className="btn-primary text-sm flex items-center gap-1.5"
-              disabled={saving}
-            >
-              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
-              </svg>
-              Закрыть задачу
-            </button>
-          ) : (
-            <button
-              onClick={() => changeStatus('pending')}
-              className="btn-secondary text-sm"
-              disabled={saving}
-            >
-              Снова открыть
-            </button>
-          )}
+          <button
+            onClick={onClose}
+            className="btn-secondary text-sm flex items-center gap-1.5"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+            Закрыть
+          </button>
 
           <div className="flex-1" />
 
