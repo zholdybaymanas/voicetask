@@ -66,9 +66,13 @@ export default function VoiceInput() {
             aria-label="Голосовая задача"
             className={`
               relative w-14 h-14 rounded-full flex items-center justify-center
-              transition-all duration-200 hover:scale-105 active:scale-95
+              transition-colors duration-200
               disabled:opacity-60 disabled:cursor-not-allowed
-              ${isListening ? 'bg-red-500 hover:bg-red-600 shadow-xl' : 'fab-accent'}
+              ${isListening
+                ? 'mic-active-pulse bg-red-500 hover:bg-red-600 shadow-xl'
+                : isProcessing
+                  ? 'fab-accent'
+                  : 'mic-idle-pulse fab-accent'}
             `}
           >
             {isListening && (

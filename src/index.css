@@ -116,6 +116,8 @@
   html {
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    /* Same colour as body so iOS PWA safe-area + overscroll match the theme */
+    background-color: rgb(var(--bg-rgb));
   }
 
   body {
@@ -268,3 +270,17 @@ input, textarea, select { transition: border-color 0.15s ease, box-shadow 0.15s 
   to   { transform: translateX(0); }
 }
 .drawer-enter { animation: drawer-slide-in 0.22s ease-out; }
+
+/* Microphone "breathing" pulse — slow when idle, fast when listening */
+@keyframes mic-breath {
+  0%, 100% { transform: scale(1); }
+  50%      { transform: scale(1.05); }
+}
+@keyframes mic-pulse-active {
+  0%, 100% { transform: scale(1); }
+  50%      { transform: scale(1.08); }
+}
+.mic-idle-pulse   { animation: mic-breath 2.5s ease-in-out infinite; }
+.mic-active-pulse { animation: mic-pulse-active 1s ease-in-out infinite; }
+.mic-active-pulse:active,
+.mic-idle-pulse:active { animation-play-state: paused; transform: scale(0.95); }

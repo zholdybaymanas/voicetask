@@ -61,11 +61,13 @@ export default function HomePage() {
         className={`
           relative w-32 h-32 sm:w-40 sm:h-40 rounded-full
           flex items-center justify-center
-          transition-all duration-200 active:scale-95 select-none
+          transition-colors duration-200 select-none
           disabled:cursor-not-allowed
           ${isListening
-            ? 'bg-red-500 scale-105 shadow-2xl'
-            : 'fab-accent hover:scale-105'}
+            ? 'mic-active-pulse bg-red-500 shadow-2xl'
+            : isProcessing
+              ? 'fab-accent'
+              : 'mic-idle-pulse fab-accent'}
         `}
       >
         {isListening && (

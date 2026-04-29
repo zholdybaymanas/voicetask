@@ -43,6 +43,14 @@ export function ThemeProvider({ children }) {
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme)
     try { localStorage.setItem(STORAGE_KEY, theme) } catch {}
+
+    // Sync iOS PWA / Android status-bar tint to the active theme background
+    // so there's no leftover blue bar at the bottom of the screen.
+    const meta = document.querySelector('meta[name="theme-color"]')
+    if (meta) {
+      const t = THEMES.find(x => x.id === theme)
+      if (t?.swatch) meta.setAttribute('content', t.swatch)
+    }
   }, [theme])
 
   function setTheme(id) {

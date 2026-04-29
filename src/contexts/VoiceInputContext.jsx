@@ -46,27 +46,12 @@ export function VoiceInputProvider({ children }) {
   const startListening = useCallback(async () => {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition
 
-    // iOS detection — Safari uses webkit-prefixed API and behaves
-    // differently from desktop Chrome. On iOS, all browsers (Chrome /
-    // Firefox / Edge) are forced to use WebKit, but only Safari exposes
-    // SpeechRecognition. iOS Chrome explicitly blocks webkitSpeechRecognition.
     const ua = navigator.userAgent || ''
-    const isIOS = /iPad|iPhone|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
-    const isStandalone = window.navigator.standalone === true
-    const isIOSChrome  = isIOS && /CriOS/.test(ua)
-    const isIOSFirefox = isIOS && /FxiOS/.test(ua)
-    const isIOSEdge    = isIOS && /EdgiOS/.test(ua)
-    const isIOSOtherBrowser = isIOSChrome || isIOSFirefox || isIOSEdge
-    const isSafari = /Safari/.test(ua) && !/Chrome|CriOS|FxiOS|EdgiOS/.test(ua)
+    const isIOS = /iPad|iPhone|iPod/.test(ua)
 
     if (!SR) {
-      if (isIOSOtherBrowser) {
-        const name = isIOSChrome ? 'Chrome' : isIOSFirefox ? 'Firefox' : 'Edge'
-        setErrorMsg(`${name} на iPhone не поддерживает голосовой ввод. Откройте сайт в Safari.`)
-      } else if (isIOS && isStandalone) {
-        setErrorMsg('Голосовой ввод в iOS-PWA нестабилен. Откройте сайт в обычном Safari.')
-      } else if (isIOS) {
-        setErrorMsg('Обновите iOS до 14.5 или новее, либо откройте сайт в Safari.')
+      if (isIOS) {
+        setErrorMsg('Голосовой ввод работает в Chrome на Android и компьютере. На iPhone откройте сайт в браузере Chrome.')
       } else {
         setErrorMsg('Браузер не поддерживает распознавание речи. Используйте Chrome или Edge.')
       }
@@ -91,7 +76,7 @@ export function VoiceInputProvider({ children }) {
       console.error('[Voice] getUserMedia:', err)
       let msg = 'Доступ к микрофону запрещён.'
       if (err.name === 'NotAllowedError') {
-        msg = isIOS && isSafari
+        msg = isIOS
           ? 'Разрешите микрофон: aA → «Настройки веб-сайта» → Микрофон → Разрешить'
           : 'Разрешите микрофон в настройках браузера для этого сайта.'
       } else if (err.name === 'NotFoundError') {
