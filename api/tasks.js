@@ -1,6 +1,11 @@
 // POST /api/tasks
-// Body: { transcript: string, projects: [{id, name}], team: [{id, full_name, email}] }
+// Body: { transcript: string }
 // Returns: { title, assigned_to, project_id, deadline }
+//
+// Loads the projects + team list and voice_keywords *server-side* using
+// the service-role key, so an empty/late frontend cache can never starve
+// the parser of context.
+//
 // AUTH: requires Authorization: Bearer <Supabase JWT>. Without it the
 //       endpoint is rejected — prevents abuse of the Anthropic API budget.
 import { createClient } from '@supabase/supabase-js'
@@ -9,6 +14,11 @@ function getServiceClient() {
   const url = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY
   if (!url || !key) return null
+  const usingServiceRole = !!process.env.SUPABASE_SERVICE_ROLE_KEY
+  if (!usingServiceRole) {
+    // Anon key is subject to RLS — projects/team may come back filtered or empty.
+    console.warn('[api/tasks] SUPABASE_SERVICE_ROLE_KEY not set — falling back to anon key (RLS applies)')
+  }
   return createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } })
 }
 
@@ -22,10 +32,6 @@ async function requireAuth(req, sb) {
   return data.user
 }
 
-// Load voice_keywords for a given list of canonical IDs and return:
-//   { 'assignee:<uuid>': ['keyword1', 'keyword2'], ... }
-// Falls back gracefully — if the table doesn't exist or the query fails,
-// returns an empty map (the prompt then just uses canonical names).
 async function loadKeywords(sb, ids) {
   if (!sb || !ids.length) return new Map()
   try {
@@ -60,7 +66,8 @@ export default async function handler(req, res) {
     const user = await requireAuth(req, sb)
     if (!user) return res.status(401).json({ error: 'Unauthorized' })
 
-    const { transcript, projects = [], team = [] } = req.body ?? {}
+    const { transcript } = req.body ?? {}
+    console.log('[api/tasks] Transcript:', transcript)
 
     if (typeof transcript !== 'string' || !transcript.trim()) {
       return res.status(400).json({ error: 'Нет текста для обработки' })
@@ -68,43 +75,48 @@ export default async function handler(req, res) {
     if (transcript.length > 4000) {
       return res.status(400).json({ error: 'Слишком длинный текст' })
     }
-    if (!Array.isArray(projects) || !Array.isArray(team)) {
-      return res.status(400).json({ error: 'Некорректные данные' })
-    }
 
     const apiKey = process.env.ANTHROPIC_API_KEY
     if (!apiKey) {
       return res.status(500).json({ error: 'ANTHROPIC_API_KEY не настроен на сервере' })
     }
 
+    // Load context server-side — never trust the client to populate this,
+    // since a fresh page load may send empty arrays before its caches fill.
+    const [projectsRes, teamRes] = await Promise.all([
+      sb.from('projects').select('id, name').eq('archived', false),
+      sb.from('profiles').select('id, full_name, email'),
+    ])
+    if (projectsRes.error) console.error('[api/tasks] projects load error:', projectsRes.error)
+    if (teamRes.error)     console.error('[api/tasks] team load error:',     teamRes.error)
+    const projects = projectsRes.data ?? []
+    const team     = teamRes.data     ?? []
+    console.log('[api/tasks] Projects list:', projects.map(p => p.name))
+    console.log('[api/tasks] Team list:',     team.map(t => t.full_name || t.email))
+
     const today = new Date().toISOString().split('T')[0]
 
-    // Load known voice variants for each team member / project from
-    // voice_keywords. The trigger generates lowercase canonical name +
-    // each word (so "Манас Жолдыбай" → ["манас жолдыбай","манас","жолдыбай"]).
     const allIds = [...team.map(m => m.id), ...projects.map(p => p.id)]
     const keywordMap = await loadKeywords(sb, allIds)
 
     function variantsFor(type, id, fallback) {
       const stored = keywordMap.get(`${type}:${id}`) ?? []
       const set = new Set(stored.map(k => k.toLowerCase()))
-      // Always include the canonical name so the prompt is useful even
-      // without keywords backfilled yet.
       if (fallback) set.add(fallback.toLowerCase())
       return [...set]
     }
 
-    const assigneeKeywords = team.length
+    const assigneeList = team.length
       ? team.map(m => {
           const variants = variantsFor('assignee', m.id, m.full_name || m.email)
-          return `${variants.join(' / ')} → ${m.id}`
+          return `"${m.full_name || m.email}" (варианты: ${variants.join(', ')}) → id: ${m.id}`
         }).join('\n')
       : '(нет членов команды)'
 
-    const projectKeywords = projects.length
+    const projectList = projects.length
       ? projects.map(p => {
           const variants = variantsFor('project', p.id, p.name)
-          return `${variants.join(' / ')} → ${p.id}`
+          return `"${p.name}" (варианты: ${variants.join(', ')}) → id: ${p.id}`
         }).join('\n')
       : '(нет проектов)'
 
@@ -114,24 +126,16 @@ export default async function handler(req, res) {
 
 Голосовой текст: ${transcript}
 
-Словарь исполнителей (keyword → id):
-${assigneeKeywords}
+Список исполнителей (сопоставляй нечётко, учитывай падежи русского/казахского, транслит, предлоги «исполнитель», «для», «назначь», «отправь», «поручи»):
+${assigneeList}
 
-Словарь проектов (keyword → id):
-${projectKeywords}
-
-Фразы для определения исполнителя:
-«исполнитель X», «для X», «назначь X», «X сделает», «отправь X», «X будет делать», «поручи X», «X займётся»
-
-Фразы для определения проекта:
-«в проект X», «в X», «для проекта X», «запиши в X», «проект X»
-
-Сопоставляй нечётко — учитывай падежи русского и казахского, транслит, опечатки распознавания.
+Список проектов (сопоставляй нечётко, учитывай падежи, предлоги «в», «для», «в проект», «по проекту», «запиши в»):
+${projectList}
 
 Правила:
 - title = суть задачи, без служебных слов
-- assigned_to = id из словаря исполнителей, иначе null
-- project_id = id из словаря проектов, иначе null
+- assigned_to = id из списка исполнителей, иначе null
+- project_id = id из списка проектов, иначе null
 - deadline = YYYY-MM-DD если дата упомянута (от ${today}), иначе null
 - В title НЕ включай: «запиши задачу», «исполнитель», «является», «отправь», «назначь», «в проект», «для», «по проекту», имя исполнителя, название проекта, упоминание даты
 
@@ -171,7 +175,7 @@ ${projectKeywords}
 
     const claudeData = await claudeRes.json()
     const raw = claudeData?.content?.[0]?.text ?? ''
-    console.log('[api/tasks] Claude raw output:', raw)
+    console.log('[api/tasks] Haiku response:', raw)
 
     const jsonStr = raw.replace(/^```(?:json)?\n?/i, '').replace(/\n?```$/i, '').trim()
 
@@ -182,6 +186,7 @@ ${projectKeywords}
       console.error('[api/tasks] JSON parse error:', parseErr.message)
       parsed = { title: transcript, assigned_to: null, project_id: null, deadline: null }
     }
+    console.log('[api/tasks] Parsed result:', parsed)
 
     // Validate uuids — Claude может галлюцинировать. Принимаем только uuid из списков.
     const validUserIds    = new Set(team.map(u => u.id))
@@ -193,7 +198,14 @@ ${projectKeywords}
       deadline:    /^\d{4}-\d{2}-\d{2}$/.test(parsed.deadline ?? '') ? parsed.deadline : null,
     }
 
-    console.log('[api/tasks] result:', result)
+    if (parsed.assigned_to && !result.assigned_to) {
+      console.warn('[api/tasks] Haiku returned unknown assignee uuid:', parsed.assigned_to)
+    }
+    if (parsed.project_id && !result.project_id) {
+      console.warn('[api/tasks] Haiku returned unknown project uuid:', parsed.project_id)
+    }
+
+    console.log('[api/tasks] Final result:', result)
     return res.status(200).json(result)
 
   } catch (error) {

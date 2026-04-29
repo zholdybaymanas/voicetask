@@ -258,10 +258,13 @@ export function VoiceInputProvider({ children }) {
     setState(S.PROCESSING)
     try {
       const authHeaders = await getAuthHeader()
+      // Server loads projects/team itself via the service-role key — we
+      // only ship the transcript so an empty/late local cache can't
+      // starve Haiku of context.
       const res = await fetch('/api/tasks', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...authHeaders },
-        body: JSON.stringify({ transcript: text, projects, team }),
+        body: JSON.stringify({ transcript: text }),
       })
       const parsed = await res.json()
       if (!res.ok) throw new Error(parsed.error ?? 'Ошибка сервера')
