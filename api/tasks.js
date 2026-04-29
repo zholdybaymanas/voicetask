@@ -32,6 +32,18 @@ async function requireAuth(req, sb) {
   return data.user
 }
 
+// Maps Kazakh-only Cyrillic letters to their closest Russian equivalents.
+// Speech recognition (especially ru-RU) often emits the Russian form even
+// when the user said the Kazakh one — and vice-versa for kk-KZ. By
+// normalising both the transcript and the keyword variants on the server
+// side, "Мәнгілік" and "Мангилик" collapse to the same string and Haiku
+// has a much easier time matching.
+const KZ_TO_RU = { ә: 'а', ғ: 'г', қ: 'к', ң: 'н', ө: 'о', ұ: 'у', ү: 'у', һ: 'х', і: 'и' }
+function normalizeText(text) {
+  if (!text) return ''
+  return text.toLowerCase().replace(/[әғқңөұүһі]/g, ch => KZ_TO_RU[ch] ?? ch)
+}
+
 async function loadKeywords(sb, ids) {
   if (!sb || !ids.length) return new Map()
   try {
@@ -67,13 +79,20 @@ export default async function handler(req, res) {
     if (!user) return res.status(401).json({ error: 'Unauthorized' })
 
     const { transcript } = req.body ?? {}
-    console.log('[api/tasks] Transcript:', transcript)
+    console.log('[api/tasks] Transcript (raw):', transcript)
 
     if (typeof transcript !== 'string' || !transcript.trim()) {
       return res.status(400).json({ error: 'Нет текста для обработки' })
     }
     if (transcript.length > 4000) {
       return res.status(400).json({ error: 'Слишком длинный текст' })
+    }
+
+    // Normalise once so Kazakh-only letters collapse to their Russian
+    // equivalents before Haiku ever sees them.
+    const transcriptNorm = normalizeText(transcript)
+    if (transcriptNorm !== transcript.toLowerCase()) {
+      console.log('[api/tasks] Transcript (kz→ru normalised):', transcriptNorm)
     }
 
     const apiKey = process.env.ANTHROPIC_API_KEY
@@ -101,8 +120,17 @@ export default async function handler(req, res) {
 
     function variantsFor(type, id, fallback) {
       const stored = keywordMap.get(`${type}:${id}`) ?? []
-      const set = new Set(stored.map(k => k.toLowerCase()))
-      if (fallback) set.add(fallback.toLowerCase())
+      const set = new Set()
+      for (const k of stored) {
+        const lower = k.toLowerCase()
+        set.add(lower)
+        set.add(normalizeText(lower)) // adds the kz→ru form alongside
+      }
+      if (fallback) {
+        const lower = fallback.toLowerCase()
+        set.add(lower)
+        set.add(normalizeText(lower))
+      }
       return [...set]
     }
 
@@ -124,7 +152,9 @@ export default async function handler(req, res) {
 
 Сегодняшняя дата: ${today}
 
-Голосовой текст: ${transcript}
+Голосовой текст: ${transcriptNorm}
+
+Текст может содержать казахские буквы или их русские эквиваленты. Сопоставляй нечётко: мәнгілік = мангилик, ә=а, ғ=г, қ=к, ң=н, ө=о, ұ/ү=у, һ=х, і=и.
 
 Список исполнителей (сопоставляй нечётко, учитывай падежи русского/казахского, транслит, предлоги «исполнитель», «для», «назначь», «отправь», «поручи»):
 ${assigneeList}

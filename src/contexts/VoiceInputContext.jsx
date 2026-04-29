@@ -22,6 +22,10 @@ export function VoiceInputProvider({ children }) {
   // an in-flight start if the user releases before getUserMedia resolves
   // (touch hold-to-record).
   const wantsListeningRef = useRef(false)
+  // Speech recognition language. Default ru-RU; flips to kk-KZ for the
+  // *next* hold if the previous attempt produced no transcript, then
+  // resets to ru-RU on any successful recognition.
+  const langRef           = useRef('ru-RU')
 
   // Load projects/team once for parser context
   useEffect(() => {
@@ -107,7 +111,8 @@ export function VoiceInputProvider({ children }) {
 
     const rec = new SR()
     recognitionRef.current = rec
-    rec.lang = 'ru-RU'
+    rec.lang = langRef.current
+    if (langRef.current !== 'ru-RU') console.log('[Voice] retrying with lang:', langRef.current)
     // Continuous mode + auto-restart in onend (below) keeps recognition
     // running for the whole hold, even on iOS Safari which silently stops
     // mid-utterance. Stop is driven by user releasing the button.
@@ -161,8 +166,15 @@ export function VoiceInputProvider({ children }) {
       const text = finalRef.current.trim()
       finalRef.current = ''
       recognitionRef.current = null
-      if (text) processAndCreate(text)
-      else     setState(S.IDLE)
+      if (text) {
+        // Got something — reset to the default language for the next session.
+        langRef.current = 'ru-RU'
+        processAndCreate(text)
+      } else {
+        // Empty result — flip language so the next hold tries the other one.
+        langRef.current = langRef.current === 'ru-RU' ? 'kk-KZ' : 'ru-RU'
+        setState(S.IDLE)
+      }
     }
 
     setState(S.LISTENING)

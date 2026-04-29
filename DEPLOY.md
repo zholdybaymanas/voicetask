@@ -160,26 +160,42 @@ drop policy if exists "voice_keywords_select_all" on voice_keywords;
 create policy "voice_keywords_select_all" on voice_keywords
   for select to authenticated using (true);
 
--- Авто-генерация: имя, фамилия, имя+фамилия (lower-case) для каждого профиля
+-- Хелпер: транслитерация казахских букв в русские эквиваленты
+-- (ә→а, ғ→г, қ→к, ң→н, ө→о, ұ/ү→у, һ→х, і→и). Используется чтобы
+-- "Мәнгілік" автоматически попало в keywords как "мангилик" — это нужно
+-- потому что Speech API часто транскрибирует в одну сторону, а в БД
+-- название может быть в другой.
+create or replace function kz_to_ru(input text)
+returns text as $$
+  select translate(coalesce(input, ''), 'әғқңөұүһі', 'агкноуухи')
+$$ language sql immutable;
+
+-- Авто-генерация: имя, фамилия, имя+фамилия (lower-case) + казахско-нормализованные варианты
 create or replace function generate_voice_keywords_for_profile()
 returns trigger as $$
 declare
   parts text[];
   part  text;
+  raw   text;
+  norm  text;
 begin
   delete from voice_keywords where type = 'assignee' and canonical_id = NEW.id;
   if NEW.full_name is null or length(trim(NEW.full_name)) = 0 then
     return NEW;
   end if;
-  insert into voice_keywords (type, canonical_id, keyword)
-    values ('assignee', NEW.id, lower(trim(NEW.full_name)))
-    on conflict do nothing;
-  parts := regexp_split_to_array(trim(NEW.full_name), '\s+');
+  raw  := lower(trim(NEW.full_name));
+  norm := kz_to_ru(raw);
+  insert into voice_keywords (type, canonical_id, keyword) values ('assignee', NEW.id, raw)  on conflict do nothing;
+  if norm <> raw then
+    insert into voice_keywords (type, canonical_id, keyword) values ('assignee', NEW.id, norm) on conflict do nothing;
+  end if;
+  parts := regexp_split_to_array(raw, '\s+');
   foreach part in array parts loop
     if length(part) >= 2 then
-      insert into voice_keywords (type, canonical_id, keyword)
-        values ('assignee', NEW.id, lower(part))
-        on conflict do nothing;
+      insert into voice_keywords (type, canonical_id, keyword) values ('assignee', NEW.id, part) on conflict do nothing;
+      if kz_to_ru(part) <> part then
+        insert into voice_keywords (type, canonical_id, keyword) values ('assignee', NEW.id, kz_to_ru(part)) on conflict do nothing;
+      end if;
     end if;
   end loop;
   return NEW;
@@ -191,26 +207,32 @@ create trigger profiles_voice_keywords
   after insert or update of full_name on profiles
   for each row execute function generate_voice_keywords_for_profile();
 
--- Авто-генерация для проектов
+-- Авто-генерация для проектов (та же логика)
 create or replace function generate_voice_keywords_for_project()
 returns trigger as $$
 declare
   parts text[];
   part  text;
+  raw   text;
+  norm  text;
 begin
   delete from voice_keywords where type = 'project' and canonical_id = NEW.id;
   if NEW.name is null or length(trim(NEW.name)) = 0 then
     return NEW;
   end if;
-  insert into voice_keywords (type, canonical_id, keyword)
-    values ('project', NEW.id, lower(trim(NEW.name)))
-    on conflict do nothing;
-  parts := regexp_split_to_array(trim(NEW.name), '\s+');
+  raw  := lower(trim(NEW.name));
+  norm := kz_to_ru(raw);
+  insert into voice_keywords (type, canonical_id, keyword) values ('project', NEW.id, raw)  on conflict do nothing;
+  if norm <> raw then
+    insert into voice_keywords (type, canonical_id, keyword) values ('project', NEW.id, norm) on conflict do nothing;
+  end if;
+  parts := regexp_split_to_array(raw, '\s+');
   foreach part in array parts loop
     if length(part) >= 2 then
-      insert into voice_keywords (type, canonical_id, keyword)
-        values ('project', NEW.id, lower(part))
-        on conflict do nothing;
+      insert into voice_keywords (type, canonical_id, keyword) values ('project', NEW.id, part) on conflict do nothing;
+      if kz_to_ru(part) <> part then
+        insert into voice_keywords (type, canonical_id, keyword) values ('project', NEW.id, kz_to_ru(part)) on conflict do nothing;
+      end if;
     end if;
   end loop;
   return NEW;
