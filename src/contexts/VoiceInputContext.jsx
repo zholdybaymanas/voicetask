@@ -246,6 +246,14 @@ export function VoiceInputProvider({ children }) {
     return createdTask
   }
 
+  // Returns to IDLE only if we're still PROCESSING — using a functional
+  // setState avoids clobbering a new LISTENING state if the user pressed
+  // the mic again while the API call was in flight.
+  function finishProcessing() {
+    setState(prev => prev === S.PROCESSING ? S.IDLE : prev)
+    setErrorMsg('')
+  }
+
   async function processAndCreate(text) {
     setState(S.PROCESSING)
     try {
@@ -258,37 +266,31 @@ export function VoiceInputProvider({ children }) {
       const parsed = await res.json()
       if (!res.ok) throw new Error(parsed.error ?? 'Ошибка сервера')
 
-      // The cleaned transcript (fillers removed, errors fixed) is what we
-      // store on the task. We never show it on screen — the toast is the
-      // only post-recording feedback.
-      const cleaned = (parsed.cleaned ?? '').trim() || text
-      const title = (parsed.title ?? '').trim() || cleaned
-      const confidence = Number.isFinite(parsed.confidence) ? parsed.confidence : 0.5
-      const needsClarification = !parsed.assigned_to || confidence < 0.7
+      const title = (parsed.title ?? '').trim()
 
-      if (needsClarification) {
-        // Pause and ask the user. Pre-fill what Claude was sure about.
+      // Clarification window only when there's nothing to put in title.
+      // If we have a title, create the task even without assignee/project —
+      // the user can fill those in later from the task list.
+      if (!title) {
         setPendingTask({
-          title,
+          title:       '',
           assigned_to: parsed.assigned_to ?? null,
           project_id:  parsed.project_id  ?? null,
           deadline:    parsed.deadline    ?? null,
-          confidence,
-          voice_text:  cleaned,
+          voice_text:  text,
         })
-        setState(S.IDLE)
+        finishProcessing()
         return
       }
 
-      // Confidence high AND assignee set — create immediately
       await createTask({
         title,
         assigned_to: parsed.assigned_to,
         project_id:  parsed.project_id,
         deadline:    parsed.deadline,
-        voice_text:  cleaned,
+        voice_text:  text,
       })
-      setState(S.IDLE)
+      finishProcessing()
     } catch (err) {
       console.error('[Voice] processAndCreate:', err)
       setErrorMsg(err.message)
@@ -296,19 +298,19 @@ export function VoiceInputProvider({ children }) {
     }
   }
 
-  async function confirmPendingTask({ assigned_to, project_id, deadline }) {
+  async function confirmPendingTask({ title, assigned_to, project_id, deadline }) {
     if (!pendingTask) return
     setState(S.PROCESSING)
     try {
       await createTask({
-        title:       pendingTask.title,
+        title:       (title ?? pendingTask.title ?? '').trim() || pendingTask.voice_text,
         assigned_to: assigned_to ?? pendingTask.assigned_to,
         project_id:  project_id  ?? pendingTask.project_id,
         deadline:    deadline    ?? pendingTask.deadline,
         voice_text:  pendingTask.voice_text,
       })
       setPendingTask(null)
-      setState(S.IDLE)
+      finishProcessing()
     } catch (err) {
       console.error('[Voice] confirmPendingTask:', err)
       setErrorMsg(err.message)

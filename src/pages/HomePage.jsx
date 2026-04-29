@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { useAuth } from '../hooks/useAuth'
 import { useVoiceInput } from '../contexts/VoiceInputContext'
 import { isIOS, isSafari, isStandalonePWA } from '../lib/platform'
@@ -19,17 +19,22 @@ export default function HomePage() {
 
   const displayName = profile?.full_name || user?.email?.split('@')[0] || ''
 
-  // Hold-to-record only — pointer events drive the entire lifecycle.
-  // No click/tap toggle: pressing starts, releasing stops.
-  function handlePointerDown(e) {
+  // Hold-to-record. The isHolding ref guards the up handler so duplicate
+  // pointerleave/cancel/up events don't double-stop, and so a stale
+  // pointerup (e.g. from a previous press cycle) is ignored.
+  const isHolding = useRef(false)
+
+  const handlePointerDown = (e) => {
     e.preventDefault()
-    if (isProcessing || isListening) return
+    isHolding.current = true
     startListening()
   }
 
-  function handleRelease(e) {
+  const handlePointerUp = (e) => {
     e.preventDefault?.()
-    if (isListening) stopListening()
+    if (!isHolding.current) return
+    isHolding.current = false
+    stopListening()
   }
 
   const hint = isProcessing
@@ -49,13 +54,13 @@ export default function HomePage() {
 
       <button
         onPointerDown={handlePointerDown}
-        onPointerUp={handleRelease}
-        onPointerCancel={handleRelease}
-        onPointerLeave={handleRelease}
+        onPointerUp={handlePointerUp}
+        onPointerLeave={handlePointerUp}
+        onPointerCancel={handlePointerUp}
         onContextMenu={(e) => e.preventDefault()}
         disabled={isProcessing}
         aria-label="Голосовая задача (удерживайте для записи)"
-        style={{ touchAction: 'none', WebkitUserSelect: 'none', WebkitTouchCallout: 'none' }}
+        style={{ touchAction: 'none', userSelect: 'none', WebkitTouchCallout: 'none' }}
         className={`
           relative w-32 h-32 sm:w-40 sm:h-40 rounded-full
           flex items-center justify-center

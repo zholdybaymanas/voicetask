@@ -3,7 +3,7 @@
 // floating button that appears on every page EXCEPT the home page,
 // where the big centered mic takes its place. The toast, error modal,
 // and clarification modal render on every page.
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useLocation } from 'react-router-dom'
 import { useVoiceInput } from '../contexts/VoiceInputContext'
 
@@ -15,15 +15,20 @@ export default function VoiceInput() {
 
   const fabLabel = isListening ? 'Удерживайте для записи' : isProcessing ? 'Обработка...' : null
 
-  // Hold-to-record on every pointer type — no click toggle.
-  function fabPointerDown(e) {
+  // Hold-to-record on every pointer type — no click toggle. isHolding
+  // guards against duplicate up events from leave/cancel firing too.
+  const isHolding = useRef(false)
+
+  const fabPointerDown = (e) => {
     e.preventDefault()
-    if (isProcessing || isListening) return
+    isHolding.current = true
     startListening()
   }
-  function fabRelease(e) {
+  const fabPointerUp = (e) => {
     e.preventDefault?.()
-    if (isListening) stopListening()
+    if (!isHolding.current) return
+    isHolding.current = false
+    stopListening()
   }
 
   return (
@@ -86,13 +91,13 @@ export default function VoiceInput() {
 
           <button
             onPointerDown={fabPointerDown}
-            onPointerUp={fabRelease}
-            onPointerCancel={fabRelease}
-            onPointerLeave={fabRelease}
+            onPointerUp={fabPointerUp}
+            onPointerLeave={fabPointerUp}
+            onPointerCancel={fabPointerUp}
             onContextMenu={(e) => e.preventDefault()}
             disabled={isProcessing}
             aria-label="Голосовая задача (удерживайте для записи)"
-            style={{ touchAction: 'none', WebkitUserSelect: 'none', WebkitTouchCallout: 'none' }}
+            style={{ touchAction: 'none', userSelect: 'none', WebkitTouchCallout: 'none' }}
             className={`
               relative w-14 h-14 rounded-full flex items-center justify-center
               transition-colors duration-200 select-none
@@ -149,6 +154,7 @@ export default function VoiceInput() {
 
 function ClarificationModal() {
   const { pendingTask, projects, team, confirmPendingTask, cancelPendingTask } = useVoiceInput()
+  const [title,      setTitle]      = useState('')
   const [assigneeId, setAssigneeId] = useState('')
   const [projectId,  setProjectId]  = useState('')
   const [deadline,   setDeadline]   = useState('')
@@ -157,6 +163,7 @@ function ClarificationModal() {
   // Reset form when a new pending task arrives
   useEffect(() => {
     if (pendingTask) {
+      setTitle(pendingTask.title ?? '')
       setAssigneeId(pendingTask.assigned_to ?? '')
       setProjectId(pendingTask.project_id ?? '')
       setDeadline(pendingTask.deadline ?? '')
@@ -167,16 +174,16 @@ function ClarificationModal() {
   if (!pendingTask) return null
 
   async function submit() {
+    if (!title.trim()) return
     setSaving(true)
     await confirmPendingTask({
+      title:       title.trim(),
       assigned_to: assigneeId || null,
       project_id:  projectId  || null,
       deadline:    deadline   || null,
     })
     // setSaving(false) — modal will unmount when pendingTask becomes null
   }
-
-  const confidencePercent = Math.round((pendingTask.confidence ?? 0) * 100)
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center px-0 sm:px-4">
@@ -186,7 +193,7 @@ function ClarificationModal() {
           <div className="min-w-0 flex-1">
             <h2 className="text-base font-semibold text-text">Уточните задачу</h2>
             <p className="text-xs text-muted mt-0.5">
-              Уверенность распознавания: {confidencePercent}%
+              Не удалось определить название — введите его вручную
             </p>
           </div>
           <button
@@ -200,19 +207,25 @@ function ClarificationModal() {
           </button>
         </div>
 
-        <div className="bg-hover rounded-lg px-3 py-2.5 mb-4">
-          <p className="text-xs text-muted mb-0.5">Название</p>
-          <p className="text-sm text-text break-words">{pendingTask.title}</p>
-        </div>
-
         <div className="space-y-3">
+          <div>
+            <label className="block text-xs font-medium text-text mb-1">Название</label>
+            <input
+              type="text"
+              className="input"
+              value={title}
+              onChange={e => setTitle(e.target.value)}
+              placeholder="Что нужно сделать?"
+              autoFocus
+            />
+          </div>
+
           <div>
             <label className="block text-xs font-medium text-text mb-1">Кому назначить?</label>
             <select
               className="input"
               value={assigneeId}
               onChange={e => setAssigneeId(e.target.value)}
-              autoFocus
             >
               <option value="">Себе</option>
               {team.map(u => (
