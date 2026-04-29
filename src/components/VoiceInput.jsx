@@ -15,20 +15,33 @@ export default function VoiceInput() {
 
   const fabLabel = isListening ? 'Удерживайте для записи' : isProcessing ? 'Обработка...' : null
 
-  // Hold-to-record on every pointer type — no click toggle. isHolding
-  // guards against duplicate up events from leave/cancel firing too.
-  const isHolding = useRef(false)
+  // Hold-to-record with a 300ms threshold (taps don't start a session).
+  const HOLD_THRESHOLD = 300
+  const isHolding       = useRef(false)
+  const holdTimer       = useRef(null)
+  const pointerDownTime = useRef(0)
 
   const fabPointerDown = (e) => {
     e.preventDefault()
-    isHolding.current = true
-    startListening()
+    pointerDownTime.current = Date.now()
+    clearTimeout(holdTimer.current)
+    holdTimer.current = setTimeout(() => {
+      isHolding.current = true
+      startListening()
+    }, HOLD_THRESHOLD)
   }
   const fabPointerUp = (e) => {
     e.preventDefault?.()
-    if (!isHolding.current) return
-    isHolding.current = false
-    stopListening()
+    clearTimeout(holdTimer.current)
+    const held = Date.now() - pointerDownTime.current
+    if (held < HOLD_THRESHOLD) {
+      isHolding.current = false
+      return
+    }
+    if (isHolding.current) {
+      isHolding.current = false
+      stopListening()
+    }
   }
 
   return (

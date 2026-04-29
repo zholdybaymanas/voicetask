@@ -5,17 +5,49 @@
 //       endpoint is rejected — prevents abuse of the Anthropic API budget.
 import { createClient } from '@supabase/supabase-js'
 
-async function requireAuth(req) {
+function getServiceClient() {
   const url = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY
   if (!url || !key) return null
+  return createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } })
+}
+
+async function requireAuth(req, sb) {
+  if (!sb) return null
   const h = req.headers.authorization || ''
   const m = h.match(/^Bearer (.+)$/)
   if (!m) return null
-  const sb = createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } })
   const { data, error } = await sb.auth.getUser(m[1])
   if (error || !data?.user) return null
   return data.user
+}
+
+// Load voice_keywords for a given list of canonical IDs and return:
+//   { 'assignee:<uuid>': ['keyword1', 'keyword2'], ... }
+// Falls back gracefully — if the table doesn't exist or the query fails,
+// returns an empty map (the prompt then just uses canonical names).
+async function loadKeywords(sb, ids) {
+  if (!sb || !ids.length) return new Map()
+  try {
+    const { data, error } = await sb
+      .from('voice_keywords')
+      .select('type, canonical_id, keyword')
+      .in('canonical_id', ids)
+    if (error) {
+      console.warn('[api/tasks] keyword query failed:', error.message)
+      return new Map()
+    }
+    const byKey = new Map()
+    for (const row of (data ?? [])) {
+      const k = `${row.type}:${row.canonical_id}`
+      if (!byKey.has(k)) byKey.set(k, [])
+      byKey.get(k).push(row.keyword)
+    }
+    return byKey
+  } catch (err) {
+    console.warn('[api/tasks] keyword load threw:', err)
+    return new Map()
+  }
 }
 
 export default async function handler(req, res) {
@@ -24,7 +56,8 @@ export default async function handler(req, res) {
   try {
     if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
 
-    const user = await requireAuth(req)
+    const sb   = getServiceClient()
+    const user = await requireAuth(req, sb)
     if (!user) return res.status(401).json({ error: 'Unauthorized' })
 
     const { transcript, projects = [], team = [] } = req.body ?? {}
@@ -46,11 +79,33 @@ export default async function handler(req, res) {
 
     const today = new Date().toISOString().split('T')[0]
 
-    const teamNames = team.length
-      ? team.map(m => `${m.full_name || m.email} (id: ${m.id})`).join('\n')
+    // Load known voice variants for each team member / project from
+    // voice_keywords. The trigger generates lowercase canonical name +
+    // each word (so "Манас Жолдыбай" → ["манас жолдыбай","манас","жолдыбай"]).
+    const allIds = [...team.map(m => m.id), ...projects.map(p => p.id)]
+    const keywordMap = await loadKeywords(sb, allIds)
+
+    function variantsFor(type, id, fallback) {
+      const stored = keywordMap.get(`${type}:${id}`) ?? []
+      const set = new Set(stored.map(k => k.toLowerCase()))
+      // Always include the canonical name so the prompt is useful even
+      // without keywords backfilled yet.
+      if (fallback) set.add(fallback.toLowerCase())
+      return [...set]
+    }
+
+    const assigneeKeywords = team.length
+      ? team.map(m => {
+          const variants = variantsFor('assignee', m.id, m.full_name || m.email)
+          return `${variants.join(' / ')} → ${m.id}`
+        }).join('\n')
       : '(нет членов команды)'
-    const projectNames = projects.length
-      ? projects.map(p => `${p.name} (id: ${p.id})`).join('\n')
+
+    const projectKeywords = projects.length
+      ? projects.map(p => {
+          const variants = variantsFor('project', p.id, p.name)
+          return `${variants.join(' / ')} → ${p.id}`
+        }).join('\n')
       : '(нет проектов)'
 
     const prompt = `Извлеки задачу из голосового текста.
@@ -59,25 +114,33 @@ export default async function handler(req, res) {
 
 Голосовой текст: ${transcript}
 
-Члены команды:
-${teamNames}
+Словарь исполнителей (keyword → id):
+${assigneeKeywords}
 
-Проекты:
-${projectNames}
+Словарь проектов (keyword → id):
+${projectKeywords}
+
+Фразы для определения исполнителя:
+«исполнитель X», «для X», «назначь X», «X сделает», «отправь X», «X будет делать», «поручи X», «X займётся»
+
+Фразы для определения проекта:
+«в проект X», «в X», «для проекта X», «запиши в X», «проект X»
+
+Сопоставляй нечётко — учитывай падежи русского и казахского, транслит, опечатки распознавания.
 
 Правила:
 - title = суть задачи, без служебных слов
-- assigned_to = id члена команды (нечёткое совпадение, учитывай падежи и транслит), иначе null
-- project_id = id проекта (нечёткое совпадение), иначе null
-- deadline = ISO дата YYYY-MM-DD если упомянута, иначе null
-- Служебные слова которые не входят в title: «запиши задачу», «исполнитель», «является», «отправь», «назначь», «в проект», «для», «по проекту»
+- assigned_to = id из словаря исполнителей, иначе null
+- project_id = id из словаря проектов, иначе null
+- deadline = YYYY-MM-DD если дата упомянута (от ${today}), иначе null
+- В title НЕ включай: «запиши задачу», «исполнитель», «является», «отправь», «назначь», «в проект», «для», «по проекту», имя исполнителя, название проекта, упоминание даты
 
 Примеры:
 «встреча с контрагентами достык 300 исполнитель является тест в мангилик»
-→ {"title": "Встреча с контрагентами Достык 300", "assigned_to": "<id Тест>", "project_id": "<id Мангилик>", "deadline": null}
+→ {"title":"Встреча с контрагентами Достык 300","assigned_to":"<id Тест>","project_id":"<id Мангилик>","deadline":null}
 
 «Манас сделает отчёт по себестоимости»
-→ {"title": "Отчёт по себестоимости", "assigned_to": "<id Манас>", "project_id": null, "deadline": null}
+→ {"title":"Отчёт по себестоимости","assigned_to":"<id Манас>","project_id":null,"deadline":null}
 
 Верни ТОЛЬКО JSON без пояснений, без markdown:
 {"title":"...","assigned_to":"uuid или null","project_id":"uuid или null","deadline":"YYYY-MM-DD или null"}`

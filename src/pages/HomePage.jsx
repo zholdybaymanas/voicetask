@@ -19,22 +19,37 @@ export default function HomePage() {
 
   const displayName = profile?.full_name || user?.email?.split('@')[0] || ''
 
-  // Hold-to-record. The isHolding ref guards the up handler so duplicate
-  // pointerleave/cancel/up events don't double-stop, and so a stale
-  // pointerup (e.g. from a previous press cycle) is ignored.
-  const isHolding = useRef(false)
+  // Hold-to-record with a 300ms threshold so a fast tap/click doesn't
+  // accidentally start a session. Recording only kicks in once the timer
+  // fires and the pointer is still down.
+  const HOLD_THRESHOLD = 300
+  const isHolding       = useRef(false)
+  const holdTimer       = useRef(null)
+  const pointerDownTime = useRef(0)
 
   const handlePointerDown = (e) => {
     e.preventDefault()
-    isHolding.current = true
-    startListening()
+    pointerDownTime.current = Date.now()
+    clearTimeout(holdTimer.current)
+    holdTimer.current = setTimeout(() => {
+      isHolding.current = true
+      startListening()
+    }, HOLD_THRESHOLD)
   }
 
   const handlePointerUp = (e) => {
     e.preventDefault?.()
-    if (!isHolding.current) return
-    isHolding.current = false
-    stopListening()
+    clearTimeout(holdTimer.current)
+    const held = Date.now() - pointerDownTime.current
+    if (held < HOLD_THRESHOLD) {
+      // Treated as a click — the recording timer never fired, nothing to stop.
+      isHolding.current = false
+      return
+    }
+    if (isHolding.current) {
+      isHolding.current = false
+      stopListening()
+    }
   }
 
   const hint = isProcessing

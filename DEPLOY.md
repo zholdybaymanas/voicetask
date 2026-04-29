@@ -139,6 +139,94 @@ create policy "user_integrations_delete_own" on user_integrations
    - `GOOGLE_CLIENT_SECRET` (server-only)
 7. Redeploy
 
+### 1.2.6. Словарь голосовых ключевых слов
+
+**Таблица `voice_keywords`** + триггеры авто-генерации. Парсер задач (`/api/tasks`) подмешивает эти варианты в промпт Haiku, чтобы лучше распознавать имена и проекты в склонениях / транслите.
+
+```sql
+create table if not exists voice_keywords (
+  id           uuid primary key default gen_random_uuid(),
+  type         text not null check (type in ('assignee', 'project')),
+  canonical_id uuid not null,
+  keyword      text not null,
+  created_at   timestamptz default now(),
+  unique (type, canonical_id, keyword)
+);
+create index if not exists voice_keywords_type_idx on voice_keywords(type);
+
+alter table voice_keywords enable row level security;
+
+drop policy if exists "voice_keywords_select_all" on voice_keywords;
+create policy "voice_keywords_select_all" on voice_keywords
+  for select to authenticated using (true);
+
+-- Авто-генерация: имя, фамилия, имя+фамилия (lower-case) для каждого профиля
+create or replace function generate_voice_keywords_for_profile()
+returns trigger as $$
+declare
+  parts text[];
+  part  text;
+begin
+  delete from voice_keywords where type = 'assignee' and canonical_id = NEW.id;
+  if NEW.full_name is null or length(trim(NEW.full_name)) = 0 then
+    return NEW;
+  end if;
+  insert into voice_keywords (type, canonical_id, keyword)
+    values ('assignee', NEW.id, lower(trim(NEW.full_name)))
+    on conflict do nothing;
+  parts := regexp_split_to_array(trim(NEW.full_name), '\s+');
+  foreach part in array parts loop
+    if length(part) >= 2 then
+      insert into voice_keywords (type, canonical_id, keyword)
+        values ('assignee', NEW.id, lower(part))
+        on conflict do nothing;
+    end if;
+  end loop;
+  return NEW;
+end;
+$$ language plpgsql security definer;
+
+drop trigger if exists profiles_voice_keywords on profiles;
+create trigger profiles_voice_keywords
+  after insert or update of full_name on profiles
+  for each row execute function generate_voice_keywords_for_profile();
+
+-- Авто-генерация для проектов
+create or replace function generate_voice_keywords_for_project()
+returns trigger as $$
+declare
+  parts text[];
+  part  text;
+begin
+  delete from voice_keywords where type = 'project' and canonical_id = NEW.id;
+  if NEW.name is null or length(trim(NEW.name)) = 0 then
+    return NEW;
+  end if;
+  insert into voice_keywords (type, canonical_id, keyword)
+    values ('project', NEW.id, lower(trim(NEW.name)))
+    on conflict do nothing;
+  parts := regexp_split_to_array(trim(NEW.name), '\s+');
+  foreach part in array parts loop
+    if length(part) >= 2 then
+      insert into voice_keywords (type, canonical_id, keyword)
+        values ('project', NEW.id, lower(part))
+        on conflict do nothing;
+    end if;
+  end loop;
+  return NEW;
+end;
+$$ language plpgsql security definer;
+
+drop trigger if exists projects_voice_keywords on projects;
+create trigger projects_voice_keywords
+  after insert or update of name on projects
+  for each row execute function generate_voice_keywords_for_project();
+
+-- Backfill для уже существующих строк (триггеры сработают только на будущие изменения)
+update profiles set full_name = full_name where full_name is not null;
+update projects set name      = name      where name      is not null;
+```
+
 ### 1.3. RLS политики (если ещё не настроены)
 
 Минимальные политики для работы приложения:
