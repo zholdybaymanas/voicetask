@@ -9,9 +9,14 @@ import { useVoiceInput } from '../contexts/VoiceInputContext'
 
 export default function VoiceInput() {
   const location = useLocation()
-  const showFab  = location.pathname !== '/'
   const { state, errorMsg, toast, isListening, isProcessing,
-          startListening, stopListening, reset } = useVoiceInput()
+          startListening, stopListening, reset, voiceUnavailable } = useVoiceInput()
+
+  // On iOS PWA / unsupported browsers there's no point dangling a FAB
+  // that pops an error modal on every press — hide it instead. The home
+  // page mic stays visible (with a clear hint) so the limitation is
+  // surfaced exactly once, in the right place.
+  const showFab  = location.pathname !== '/' && !voiceUnavailable
 
   const fabLabel = isListening ? 'Удерживайте для записи' : isProcessing ? 'Обработка...' : null
 

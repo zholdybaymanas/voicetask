@@ -15,6 +15,7 @@ export default function HomePage() {
     state, errorMsg,
     isListening, isProcessing,
     startListening, stopListening,
+    voiceUnavailable, voiceUnavailableReason,
   } = useVoiceInput()
 
   const displayName = profile?.full_name || user?.email?.split('@')[0] || ''
@@ -28,6 +29,7 @@ export default function HomePage() {
   const pointerDownTime = useRef(0)
 
   const handlePointerDown = (e) => {
+    if (voiceUnavailable) return // mic is decorative — no recording possible
     e.preventDefault()
     pointerDownTime.current = Date.now()
     clearTimeout(holdTimer.current)
@@ -52,11 +54,13 @@ export default function HomePage() {
     }
   }
 
-  const hint = isProcessing
-    ? 'Обрабатываю...'
-    : isListening
-      ? 'Отпустите, чтобы закончить'
-      : 'Нажмите и удерживайте, чтобы записать'
+  const hint = voiceUnavailable
+    ? 'Голосовой ввод недоступен'
+    : isProcessing
+      ? 'Обрабатываю...'
+      : isListening
+        ? 'Отпустите, чтобы закончить'
+        : 'Нажмите и удерживайте, чтобы записать'
 
   return (
     <div className="flex flex-col items-center justify-center text-center px-4 h-full min-h-[calc(100dvh-7rem)] sm:min-h-[calc(100dvh-3.5rem)] overflow-hidden">
@@ -73,25 +77,32 @@ export default function HomePage() {
         onPointerLeave={handlePointerUp}
         onPointerCancel={handlePointerUp}
         onContextMenu={(e) => e.preventDefault()}
-        disabled={isProcessing}
-        aria-label="Голосовая задача (удерживайте для записи)"
+        disabled={isProcessing || voiceUnavailable}
+        aria-label={voiceUnavailable ? 'Голосовой ввод недоступен' : 'Голосовая задача (удерживайте для записи)'}
         style={{ touchAction: 'none', userSelect: 'none', WebkitTouchCallout: 'none' }}
         className={`
           relative w-32 h-32 sm:w-40 sm:h-40 rounded-full
           flex items-center justify-center
           transition-colors duration-200 select-none
           disabled:cursor-not-allowed
-          ${isListening
-            ? 'mic-active-pulse bg-red-500 shadow-2xl'
-            : isProcessing
-              ? 'fab-accent'
-              : 'mic-idle-pulse fab-accent'}
+          ${voiceUnavailable
+            ? 'bg-hover border border-border opacity-70'
+            : isListening
+              ? 'mic-active-pulse bg-red-500 shadow-2xl'
+              : isProcessing
+                ? 'fab-accent'
+                : 'mic-idle-pulse fab-accent'}
         `}
       >
         {isListening && (
           <span className="absolute inset-0 rounded-full bg-red-400 animate-ping opacity-40" />
         )}
-        {isProcessing ? (
+        {voiceUnavailable ? (
+          <svg className="w-14 h-14 sm:w-16 sm:h-16 text-muted relative" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+            <path strokeLinecap="round" strokeLinejoin="round"
+              d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+          </svg>
+        ) : isProcessing ? (
           <div className="w-12 h-12 border-4 border-white border-t-transparent rounded-full animate-spin" />
         ) : (
           <svg className="w-16 h-16 sm:w-20 sm:h-20 text-white relative" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -103,8 +114,14 @@ export default function HomePage() {
 
       <p className="text-xs sm:text-sm text-muted mt-6 min-h-[1.25rem]">{hint}</p>
 
+      {voiceUnavailable && (
+        <p className="mt-3 text-xs sm:text-sm text-muted max-w-sm leading-relaxed break-words">
+          {voiceUnavailableReason}
+        </p>
+      )}
+
       {/* Inline error (in addition to global modal from VoiceInput) */}
-      {state === 'error' && errorMsg && (
+      {state === 'error' && errorMsg && !voiceUnavailable && (
         <p className="mt-4 text-xs text-red-500 max-w-md break-words">{errorMsg}</p>
       )}
 

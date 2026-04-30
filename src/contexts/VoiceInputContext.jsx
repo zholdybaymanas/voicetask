@@ -1,7 +1,27 @@
 import { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react'
 import { supabaseRest, getCurrentUser, getAuthHeader } from '../lib/supabase'
 import { syncTaskToGoogleCalendar } from '../lib/googleCalendar'
-import { isIOS } from '../lib/platform'
+import { isIOS, isStandalonePWA } from '../lib/platform'
+
+// Detect once at module load. iOS Safari blocks SpeechRecognition when the
+// app runs in standalone (installed-PWA) mode — the API exists on the
+// window but firing .start() silently does nothing. We treat that case as
+// unavailable so the UI can show a clear hint instead of a dead mic.
+const SR = typeof window !== 'undefined'
+  ? (window.SpeechRecognition || window.webkitSpeechRecognition)
+  : null
+
+let voiceUnavailableReason = null
+if (!SR) {
+  voiceUnavailableReason = isIOS
+    ? 'Голосовой ввод не поддерживается. Откройте сайт в Chrome или Safari.'
+    : 'Голосовой ввод не поддерживается этим браузером. Используйте Chrome или Edge.'
+} else if (isIOS && isStandalonePWA) {
+  voiceUnavailableReason =
+    'Голосовой ввод недоступен в режиме приложения. ' +
+    'Откройте сайт в Safari, чтобы записывать голос.'
+}
+const voiceUnavailable = voiceUnavailableReason !== null
 
 const Ctx = createContext(null)
 
@@ -59,14 +79,8 @@ export function VoiceInputProvider({ children }) {
   }
 
   const startListening = useCallback(async () => {
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition
-
-    if (!SR) {
-      if (isIOS) {
-        setErrorMsg('Голосовой ввод работает в Chrome на Android и компьютере. На iPhone откройте сайт в браузере Chrome.')
-      } else {
-        setErrorMsg('Браузер не поддерживает распознавание речи. Используйте Chrome или Edge.')
-      }
+    if (voiceUnavailable) {
+      setErrorMsg(voiceUnavailableReason)
       setState(S.ERROR)
       return
     }
@@ -365,6 +379,7 @@ export function VoiceInputProvider({ children }) {
     startListening, stopListening, reset,
     projects, team,
     pendingTask, confirmPendingTask, cancelPendingTask,
+    voiceUnavailable, voiceUnavailableReason,
   }
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
