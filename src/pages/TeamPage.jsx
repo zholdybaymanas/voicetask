@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import { supabaseRest, getAuthHeader } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import { useToast } from '../contexts/ToastContext'
@@ -33,24 +34,50 @@ export default function TeamPage() {
   const [copyState, setCopyState] = useState('idle') // 'idle' | 'copied'
 
   const [openMenuId, setOpenMenuId] = useState(null)
+  // Position of the open menu in viewport coordinates. Computed from the
+  // trigger button's getBoundingClientRect so the menu (rendered via portal)
+  // can use position: fixed and escape any overflow:hidden ancestors.
+  const [menuPosition, setMenuPosition] = useState(null)
   const [pendingActionId, setPendingActionId] = useState(null) // member.id while ban/unban in flight
   const [confirmDelete, setConfirmDelete] = useState(null)     // full member object pending deletion
   const [deleting, setDeleting] = useState(false)
-  const menuContainerRef = useRef(null)
+  const menuRef = useRef(null) // the portal'd menu element, used by click-outside
 
   const isAdmin = profile?.role === 'admin'
 
   useEffect(() => { loadMembers() }, [])
 
-  // Close the 3-dot menu when clicking elsewhere on the page.
-  useEffect(() => {
-    function onClick(e) {
-      if (!menuContainerRef.current) return
-      if (!menuContainerRef.current.contains(e.target)) setOpenMenuId(null)
+  function closeMenu() {
+    setOpenMenuId(null)
+    setMenuPosition(null)
+  }
+
+  function toggleMenu(memberId, e) {
+    if (openMenuId === memberId) {
+      closeMenu()
+      return
     }
-    if (openMenuId) {
-      document.addEventListener('mousedown', onClick)
-      return () => document.removeEventListener('mousedown', onClick)
+    const rect = e.currentTarget.getBoundingClientRect()
+    setMenuPosition({ top: rect.bottom + 4, right: window.innerWidth - rect.right })
+    setOpenMenuId(memberId)
+  }
+
+  // Close on outside click and Escape. The trigger button uses
+  // e.stopPropagation() so its own clicks don't trip this handler.
+  useEffect(() => {
+    if (!openMenuId) return
+    function onDocMouseDown(e) {
+      if (menuRef.current && menuRef.current.contains(e.target)) return
+      closeMenu()
+    }
+    function onKey(e) {
+      if (e.key === 'Escape') closeMenu()
+    }
+    document.addEventListener('mousedown', onDocMouseDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDocMouseDown)
+      document.removeEventListener('keydown', onKey)
     }
   }, [openMenuId])
 
@@ -149,7 +176,7 @@ export default function TeamPage() {
   }
 
   async function banMember(member) {
-    setOpenMenuId(null)
+    closeMenu()
     setPendingActionId(member.id)
     try {
       const data = await callAdmin({ action: 'banUser', user_id: member.id })
@@ -164,7 +191,7 @@ export default function TeamPage() {
   }
 
   async function unbanMember(member) {
-    setOpenMenuId(null)
+    closeMenu()
     setPendingActionId(member.id)
     try {
       await callAdmin({ action: 'unbanUser', user_id: member.id })
@@ -282,70 +309,27 @@ export default function TeamPage() {
                     {new Date(m.created_at).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' })}
                   </span>
 
-                  {/* 3-dot menu — admin only, not on self */}
+                  {/* 3-dot trigger — admin only, not on self. The actual menu
+                      renders via portal at the bottom of this component so an
+                      ancestor with overflow:hidden can't clip it. */}
                   {isAdmin && !isSelf && (
-                    <div className="relative shrink-0">
-                      <button
-                        onClick={() => setOpenMenuId(openMenuId === m.id ? null : m.id)}
-                        disabled={busy}
-                        className="text-muted hover:text-text p-1.5 rounded-lg hover:bg-hover disabled:opacity-50"
-                        aria-label="Действия"
-                        aria-haspopup="menu"
-                        aria-expanded={openMenuId === m.id}
-                      >
-                        {busy ? (
-                          <div className="w-4 h-4 border-2 border-muted border-t-transparent rounded-full animate-spin" />
-                        ) : (
-                          <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                            <path d="M10 6a1.5 1.5 0 110-3 1.5 1.5 0 010 3zm0 5.5a1.5 1.5 0 110-3 1.5 1.5 0 010 3zm0 5.5a1.5 1.5 0 110-3 1.5 1.5 0 010 3z" />
-                          </svg>
-                        )}
-                      </button>
-
-                      {openMenuId === m.id && (
-                        <div
-                          role="menu"
-                          className="absolute right-0 top-full mt-1 z-20 min-w-[180px] bg-card border border-border rounded-lg shadow-card-hover py-1"
-                        >
-                          {banned ? (
-                            <button
-                              role="menuitem"
-                              onClick={() => unbanMember(m)}
-                              className="w-full text-left px-3 py-2 text-sm text-text hover:bg-hover flex items-center gap-2"
-                            >
-                              <svg className="w-3.5 h-3.5 text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                <path strokeLinecap="round" strokeLinejoin="round"
-                                  d="M13.5 10.5V6.75a4.5 4.5 0 119 0v3.75M3.75 21.75h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H3.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
-                              </svg>
-                              Разблокировать
-                            </button>
-                          ) : (
-                            <button
-                              role="menuitem"
-                              onClick={() => banMember(m)}
-                              className="w-full text-left px-3 py-2 text-sm text-text hover:bg-hover flex items-center gap-2"
-                            >
-                              <svg className="w-3.5 h-3.5 text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                <path strokeLinecap="round" strokeLinejoin="round"
-                                  d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
-                              </svg>
-                              Заблокировать
-                            </button>
-                          )}
-                          <button
-                            role="menuitem"
-                            onClick={() => { setOpenMenuId(null); setConfirmDelete(m) }}
-                            className="w-full text-left px-3 py-2 text-sm text-red-500 hover:bg-red-500/10 flex items-center gap-2"
-                          >
-                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                              <path strokeLinecap="round" strokeLinejoin="round"
-                                d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
-                            </svg>
-                            Удалить
-                          </button>
-                        </div>
+                    <button
+                      onMouseDown={e => e.stopPropagation()}
+                      onClick={e => { e.stopPropagation(); toggleMenu(m.id, e) }}
+                      disabled={busy}
+                      className="shrink-0 text-muted hover:text-text p-1.5 rounded-lg hover:bg-hover disabled:opacity-50"
+                      aria-label="Действия"
+                      aria-haspopup="menu"
+                      aria-expanded={openMenuId === m.id}
+                    >
+                      {busy ? (
+                        <div className="w-4 h-4 border-2 border-muted border-t-transparent rounded-full animate-spin" />
+                      ) : (
+                        <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                          <path d="M10 6a1.5 1.5 0 110-3 1.5 1.5 0 010 3zm0 5.5a1.5 1.5 0 110-3 1.5 1.5 0 010 3zm0 5.5a1.5 1.5 0 110-3 1.5 1.5 0 010 3z" />
+                        </svg>
                       )}
-                    </div>
+                    </button>
                   )}
                 </div>
               )
@@ -506,6 +490,63 @@ export default function TeamPage() {
             )}
           </div>
         </div>
+      )}
+
+      {/* Portal'd 3-dot menu — rendered into document.body so the
+          card's overflow:hidden can't clip it. Position uses fixed +
+          getBoundingClientRect coords captured when toggleMenu fires. */}
+      {openMenuId && menuPosition && createPortal(
+        (() => {
+          const m = members.find(x => x.id === openMenuId)
+          if (!m) return null
+          const banned = isBanned(m)
+          return (
+            <div
+              ref={menuRef}
+              role="menu"
+              style={{ position: 'fixed', top: menuPosition.top, right: menuPosition.right }}
+              className="z-50 min-w-[180px] bg-card border border-border rounded-lg shadow-card-hover py-1"
+            >
+              {banned ? (
+                <button
+                  role="menuitem"
+                  onClick={() => unbanMember(m)}
+                  className="w-full text-left px-3 py-2 text-sm text-text hover:bg-hover flex items-center gap-2"
+                >
+                  <svg className="w-3.5 h-3.5 text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round"
+                      d="M13.5 10.5V6.75a4.5 4.5 0 119 0v3.75M3.75 21.75h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H3.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
+                  </svg>
+                  Разблокировать
+                </button>
+              ) : (
+                <button
+                  role="menuitem"
+                  onClick={() => banMember(m)}
+                  className="w-full text-left px-3 py-2 text-sm text-text hover:bg-hover flex items-center gap-2"
+                >
+                  <svg className="w-3.5 h-3.5 text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round"
+                      d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
+                  </svg>
+                  Заблокировать
+                </button>
+              )}
+              <button
+                role="menuitem"
+                onClick={() => { closeMenu(); setConfirmDelete(m) }}
+                className="w-full text-left px-3 py-2 text-sm text-red-500 hover:bg-red-500/10 flex items-center gap-2"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round"
+                    d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+                </svg>
+                Удалить
+              </button>
+            </div>
+          )
+        })(),
+        document.body,
       )}
 
       {/* Delete confirm dialog */}
