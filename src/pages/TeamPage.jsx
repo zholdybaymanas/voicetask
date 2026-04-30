@@ -251,7 +251,7 @@ export default function TeamPage() {
           <button className="btn-secondary text-sm" onClick={loadMembers}>Повторить</button>
         </div>
       ) : (
-        <div className="card p-0 overflow-hidden" ref={menuContainerRef}>
+        <div className="card p-0 overflow-hidden">
           <div className="divide-y divide-border">
             {members.map(m => {
               const banned = isBanned(m)
