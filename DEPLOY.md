@@ -139,6 +139,14 @@ create policy "user_integrations_delete_own" on user_integrations
    - `GOOGLE_CLIENT_SECRET` (server-only)
 7. Redeploy
 
+### 1.2.5b. Поле `banned_until` для управления участниками
+
+Чтобы фронтенд знал, заблокирован ли пользователь, без отдельного админ-вызова к Supabase Auth, держим зеркальную колонку в `profiles`. `/api/admin` синхронизирует её с `auth.users.banned_until` при ban/unban.
+
+```sql
+alter table profiles add column if not exists banned_until timestamptz;
+```
+
 ### 1.2.6. Словарь голосовых ключевых слов
 
 **Таблица `voice_keywords`** + триггеры авто-генерации. Парсер задач (`/api/tasks`) подмешивает эти варианты в промпт Haiku, чтобы лучше распознавать имена и проекты в склонениях / транслите.

@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { supabaseRest, getAuthHeader } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
+import { useToast } from '../contexts/ToastContext'
 
 const ROLE_LABEL = { admin: 'Администратор', manager: 'Менеджер', member: 'Участник' }
 const ROLE_CLASS = {
@@ -9,20 +10,45 @@ const ROLE_CLASS = {
   member:  'bg-hover text-muted',
 }
 
+function isBanned(member) {
+  if (!member?.banned_until) return false
+  return new Date(member.banned_until) > new Date()
+}
+
 export default function TeamPage() {
-  const { profile } = useAuth()
+  const { profile, user } = useAuth()
+  const { show: showToast } = useToast()
   const [members, setMembers] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError]     = useState(null)
-  const [modalOpen, setModalOpen] = useState(false)
-  const [form, setForm] = useState({ email: '', full_name: '', role: 'member', password: '' })
-  const [saving, setSaving] = useState(false)
-  const [formError, setFormError] = useState('')
-  const [success, setSuccess] = useState('')
+
+  const [inviteOpen,  setInviteOpen]  = useState(false)
+  const [inviteForm,  setInviteForm]  = useState({ email: '', full_name: '', role: 'member' })
+  const [inviteSaving, setInviteSaving] = useState(false)
+  const [inviteError,  setInviteError]  = useState('')
+  const [inviteSuccess, setInviteSuccess] = useState('')
+
+  const [openMenuId, setOpenMenuId] = useState(null)
+  const [pendingActionId, setPendingActionId] = useState(null) // member.id while ban/unban in flight
+  const [confirmDelete, setConfirmDelete] = useState(null)     // full member object pending deletion
+  const [deleting, setDeleting] = useState(false)
+  const menuContainerRef = useRef(null)
 
   const isAdmin = profile?.role === 'admin'
 
   useEffect(() => { loadMembers() }, [])
+
+  // Close the 3-dot menu when clicking elsewhere on the page.
+  useEffect(() => {
+    function onClick(e) {
+      if (!menuContainerRef.current) return
+      if (!menuContainerRef.current.contains(e.target)) setOpenMenuId(null)
+    }
+    if (openMenuId) {
+      document.addEventListener('mousedown', onClick)
+      return () => document.removeEventListener('mousedown', onClick)
+    }
+  }, [openMenuId])
 
   async function loadMembers() {
     setLoading(true)
@@ -39,64 +65,102 @@ export default function TeamPage() {
     }
   }
 
-  async function handleCreate(e) {
+  async function callAdmin(body) {
+    const authHeaders = await getAuthHeader()
+    const res = await fetch('/api/admin', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders },
+      body: JSON.stringify(body),
+    })
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok) throw new Error(data.error ?? `Ошибка ${res.status}`)
+    return data
+  }
+
+  async function handleInvite(e) {
     e.preventDefault()
-    setFormError('')
-    setSuccess('')
-    if (!form.email.trim()) return setFormError('Введите email')
-    if (!form.password || form.password.length < 6) return setFormError('Пароль минимум 6 символов')
-    setSaving(true)
+    setInviteError('')
+    setInviteSuccess('')
+    if (!inviteForm.email.trim()) return setInviteError('Введите email')
 
-    let res, data
+    setInviteSaving(true)
     try {
-      const authHeaders = await getAuthHeader()
-      res = await fetch('/api/admin', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...authHeaders },
-        body: JSON.stringify({
-          action:    'createUser',
-          email:     form.email.trim(),
-          password:  form.password,
-          full_name: form.full_name.trim(),
-          role:      form.role,
-        }),
+      await callAdmin({
+        action:    'inviteUser',
+        email:     inviteForm.email.trim(),
+        full_name: inviteForm.full_name.trim(),
+        role:      inviteForm.role,
       })
-      data = await res.json().catch(() => ({}))
+      setInviteSuccess(`Приглашение отправлено на ${inviteForm.email}`)
+      setInviteForm({ email: '', full_name: '', role: 'member' })
+      loadMembers()
     } catch (err) {
-      console.error('[TeamPage] /api/admin fetch failed:', err)
-      setSaving(false)
-      return setFormError('Сервер недоступен. Запустите `npm run dev:api` или проверьте Vercel.')
+      console.error('[TeamPage] invite:', err)
+      if (/SERVICE_ROLE_KEY|SUPABASE_URL/i.test(err.message)) {
+        setInviteError('Не настроен SUPABASE_SERVICE_ROLE_KEY. См. DEPLOY.md.')
+      } else if (/SMTP|email/i.test(err.message) && /not configured|disabled/i.test(err.message)) {
+        setInviteError('SMTP в Supabase не настроен — письмо не отправлено. Включите Email в Supabase → Auth → Email Templates.')
+      } else {
+        setInviteError(err.message)
+      }
+    } finally {
+      setInviteSaving(false)
     }
-    setSaving(false)
-
-    if (!res.ok) {
-      console.error('[TeamPage] /api/admin error:', res.status, data)
-      const raw = data.error ?? `Ошибка ${res.status}`
-      if (res.status === 403) {
-        return setFormError('Создавать пользователей может только администратор.')
-      }
-      if (res.status === 401) {
-        return setFormError('Сессия истекла. Войдите заново.')
-      }
-      if (/SERVICE_ROLE_KEY|SUPABASE_URL/i.test(raw)) {
-        return setFormError(
-          'Не настроен SUPABASE_SERVICE_ROLE_KEY. Добавьте его в .env (локально) или в Environment Variables в Vercel — см. DEPLOY.md.'
-        )
-      }
-      return setFormError(raw)
-    }
-    setSuccess(`Пользователь ${form.email} создан`)
-    setForm({ email: '', full_name: '', role: 'member', password: '' })
-    loadMembers()
   }
 
   async function updateRole(userId, role) {
     const result = await supabaseRest('profiles', { method: 'PATCH', filters: [`id=eq.${userId}`], body: { role } })
     if (result.error) {
       console.error('[TeamPage] updateRole error:', result.error)
+      showToast(result.error.message ?? 'Не удалось изменить роль', 'error')
       return
     }
     setMembers(prev => prev.map(m => m.id === userId ? { ...m, role } : m))
+  }
+
+  async function banMember(member) {
+    setOpenMenuId(null)
+    setPendingActionId(member.id)
+    try {
+      const data = await callAdmin({ action: 'banUser', user_id: member.id })
+      setMembers(prev => prev.map(m => m.id === member.id ? { ...m, banned_until: data.banned_until } : m))
+      showToast(`${member.full_name || member.email} заблокирован`, 'success')
+    } catch (err) {
+      console.error('[TeamPage] ban:', err)
+      showToast(err.message, 'error')
+    } finally {
+      setPendingActionId(null)
+    }
+  }
+
+  async function unbanMember(member) {
+    setOpenMenuId(null)
+    setPendingActionId(member.id)
+    try {
+      await callAdmin({ action: 'unbanUser', user_id: member.id })
+      setMembers(prev => prev.map(m => m.id === member.id ? { ...m, banned_until: null } : m))
+      showToast(`${member.full_name || member.email} разблокирован`, 'success')
+    } catch (err) {
+      console.error('[TeamPage] unban:', err)
+      showToast(err.message, 'error')
+    } finally {
+      setPendingActionId(null)
+    }
+  }
+
+  async function deleteMember(member) {
+    setDeleting(true)
+    try {
+      await callAdmin({ action: 'deleteUser', user_id: member.id })
+      setMembers(prev => prev.filter(m => m.id !== member.id))
+      showToast(`${member.full_name || member.email} удалён`, 'success')
+      setConfirmDelete(null)
+    } catch (err) {
+      console.error('[TeamPage] delete:', err)
+      showToast(err.message, 'error')
+    } finally {
+      setDeleting(false)
+    }
   }
 
   const initials = (m) => (m.full_name ?? m.email ?? '?')[0].toUpperCase()
@@ -108,12 +172,14 @@ export default function TeamPage() {
         {isAdmin && (
           <button
             className="btn-primary flex items-center gap-1.5 text-sm shrink-0"
-            onClick={() => { setModalOpen(true); setFormError(''); setSuccess('') }}
+            onClick={() => { setInviteOpen(true); setInviteError(''); setInviteSuccess('') }}
           >
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+              <path strokeLinecap="round" strokeLinejoin="round"
+                d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
             </svg>
-            Добавить
+            <span className="hidden sm:inline">Пригласить участника</span>
+            <span className="sm:hidden">Пригласить</span>
           </button>
         )}
       </div>
@@ -128,105 +194,243 @@ export default function TeamPage() {
           <button className="btn-secondary text-sm" onClick={loadMembers}>Повторить</button>
         </div>
       ) : (
-        <div className="card p-0 overflow-hidden">
+        <div className="card p-0 overflow-hidden" ref={menuContainerRef}>
           <div className="divide-y divide-border">
-            {members.map(m => (
-              <div key={m.id} className="flex items-center gap-3 sm:gap-4 px-4 sm:px-5 py-3.5 hover:bg-hover transition-colors">
-                <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center text-primary font-semibold text-sm shrink-0">
-                  {initials(m)}
-                </div>
+            {members.map(m => {
+              const banned = isBanned(m)
+              const isSelf = m.id === user?.id
+              const busy   = pendingActionId === m.id
+              return (
+                <div
+                  key={m.id}
+                  className={`flex items-center gap-3 sm:gap-4 px-4 sm:px-5 py-3.5 transition-colors ${banned ? 'opacity-60' : ''} hover:bg-hover`}
+                >
+                  <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center text-primary font-semibold text-sm shrink-0">
+                    {initials(m)}
+                  </div>
 
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-text truncate">
-                    {m.full_name || m.email}
-                  </p>
-                  {m.full_name && (
-                    <p className="text-xs text-muted truncate">{m.email}</p>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-medium text-text truncate">
+                        {m.full_name || m.email}
+                      </p>
+                      {banned && (
+                        <span className="text-[10px] uppercase tracking-wide font-semibold px-1.5 py-0.5 rounded bg-red-500/15 text-red-400 shrink-0">
+                          Заблокирован
+                        </span>
+                      )}
+                      {isSelf && (
+                        <span className="text-[10px] uppercase tracking-wide font-medium px-1.5 py-0.5 rounded bg-hover text-muted shrink-0">
+                          Вы
+                        </span>
+                      )}
+                    </div>
+                    {m.full_name && (
+                      <p className="text-xs text-muted truncate">{m.email}</p>
+                    )}
+                  </div>
+
+                  {isAdmin ? (
+                    <select
+                      value={m.role ?? 'member'}
+                      onChange={e => updateRole(m.id, e.target.value)}
+                      className={`text-xs font-medium rounded-full px-2.5 py-1 border-0 cursor-pointer outline-none appearance-none shrink-0 ${ROLE_CLASS[m.role ?? 'member']}`}
+                      disabled={isSelf}
+                      title={isSelf ? 'Нельзя изменить свою роль здесь' : undefined}
+                    >
+                      <option value="admin">Администратор</option>
+                      <option value="manager">Менеджер</option>
+                      <option value="member">Участник</option>
+                    </select>
+                  ) : (
+                    <span className={`text-xs font-medium px-2.5 py-1 rounded-full shrink-0 ${ROLE_CLASS[m.role ?? 'member']}`}>
+                      {ROLE_LABEL[m.role ?? 'member']}
+                    </span>
+                  )}
+
+                  <span className="text-xs text-muted hidden md:block shrink-0">
+                    {new Date(m.created_at).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' })}
+                  </span>
+
+                  {/* 3-dot menu — admin only, not on self */}
+                  {isAdmin && !isSelf && (
+                    <div className="relative shrink-0">
+                      <button
+                        onClick={() => setOpenMenuId(openMenuId === m.id ? null : m.id)}
+                        disabled={busy}
+                        className="text-muted hover:text-text p-1.5 rounded-lg hover:bg-hover disabled:opacity-50"
+                        aria-label="Действия"
+                        aria-haspopup="menu"
+                        aria-expanded={openMenuId === m.id}
+                      >
+                        {busy ? (
+                          <div className="w-4 h-4 border-2 border-muted border-t-transparent rounded-full animate-spin" />
+                        ) : (
+                          <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                            <path d="M10 6a1.5 1.5 0 110-3 1.5 1.5 0 010 3zm0 5.5a1.5 1.5 0 110-3 1.5 1.5 0 010 3zm0 5.5a1.5 1.5 0 110-3 1.5 1.5 0 010 3z" />
+                          </svg>
+                        )}
+                      </button>
+
+                      {openMenuId === m.id && (
+                        <div
+                          role="menu"
+                          className="absolute right-0 top-full mt-1 z-20 min-w-[180px] bg-card border border-border rounded-lg shadow-card-hover py-1"
+                        >
+                          {banned ? (
+                            <button
+                              role="menuitem"
+                              onClick={() => unbanMember(m)}
+                              className="w-full text-left px-3 py-2 text-sm text-text hover:bg-hover flex items-center gap-2"
+                            >
+                              <svg className="w-3.5 h-3.5 text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                <path strokeLinecap="round" strokeLinejoin="round"
+                                  d="M13.5 10.5V6.75a4.5 4.5 0 119 0v3.75M3.75 21.75h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H3.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
+                              </svg>
+                              Разблокировать
+                            </button>
+                          ) : (
+                            <button
+                              role="menuitem"
+                              onClick={() => banMember(m)}
+                              className="w-full text-left px-3 py-2 text-sm text-text hover:bg-hover flex items-center gap-2"
+                            >
+                              <svg className="w-3.5 h-3.5 text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                <path strokeLinecap="round" strokeLinejoin="round"
+                                  d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
+                              </svg>
+                              Заблокировать
+                            </button>
+                          )}
+                          <button
+                            role="menuitem"
+                            onClick={() => { setOpenMenuId(null); setConfirmDelete(m) }}
+                            className="w-full text-left px-3 py-2 text-sm text-red-500 hover:bg-red-500/10 flex items-center gap-2"
+                          >
+                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                              <path strokeLinecap="round" strokeLinejoin="round"
+                                d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+                            </svg>
+                            Удалить
+                          </button>
+                        </div>
+                      )}
+                    </div>
                   )}
                 </div>
-
-                {isAdmin ? (
-                  <select
-                    value={m.role ?? 'member'}
-                    onChange={e => updateRole(m.id, e.target.value)}
-                    className={`text-xs font-medium rounded-full px-2.5 py-1 border-0 cursor-pointer outline-none appearance-none shrink-0 ${ROLE_CLASS[m.role ?? 'member']}`}
-                  >
-                    <option value="admin">Администратор</option>
-                    <option value="manager">Менеджер</option>
-                    <option value="member">Участник</option>
-                  </select>
-                ) : (
-                  <span className={`text-xs font-medium px-2.5 py-1 rounded-full shrink-0 ${ROLE_CLASS[m.role ?? 'member']}`}>
-                    {ROLE_LABEL[m.role ?? 'member']}
-                  </span>
-                )}
-
-                <span className="text-xs text-muted hidden md:block shrink-0">
-                  {new Date(m.created_at).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' })}
-                </span>
-              </div>
-            ))}
+              )
+            })}
           </div>
         </div>
       )}
 
-      {modalOpen && (
+      {/* Invite modal */}
+      {inviteOpen && (
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center px-0 sm:px-4">
-          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setModalOpen(false)} />
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setInviteOpen(false)} />
           <div className="relative bg-card border border-border rounded-t-2xl sm:rounded-2xl shadow-2xl w-full max-w-md p-5 sm:p-6">
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-base font-semibold text-text">Добавить пользователя</h2>
-              <button onClick={() => setModalOpen(false)} className="text-muted hover:text-text">
-                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <h2 className="text-base font-semibold text-text">Пригласить участника</h2>
+              <button onClick={() => setInviteOpen(false)} className="text-muted hover:text-text p-1 rounded-lg hover:bg-hover">
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
                 </svg>
               </button>
             </div>
 
-            {success ? (
+            {inviteSuccess ? (
               <div className="text-center py-4">
                 <div className="w-12 h-12 bg-emerald-500/15 rounded-full flex items-center justify-center mx-auto mb-3">
                   <svg className="w-6 h-6 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
                   </svg>
                 </div>
-                <p className="text-sm font-medium text-text mb-4">{success}</p>
-                <button className="btn-primary" onClick={() => { setSuccess(''); setModalOpen(false) }}>Готово</button>
+                <p className="text-sm font-medium text-text mb-1">{inviteSuccess}</p>
+                <p className="text-xs text-muted mb-4">
+                  Пользователь получит письмо со ссылкой для установки пароля.
+                </p>
+                <button className="btn-primary" onClick={() => { setInviteSuccess(''); setInviteOpen(false) }}>Готово</button>
               </div>
             ) : (
-              <form onSubmit={handleCreate} className="space-y-3">
-                <div>
-                  <label className="block text-xs font-medium text-text mb-1">Email *</label>
-                  <input type="email" className="input" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} placeholder="user@company.com" autoFocus />
-                </div>
+              <form onSubmit={handleInvite} className="space-y-3">
                 <div>
                   <label className="block text-xs font-medium text-text mb-1">Имя</label>
-                  <input className="input" value={form.full_name} onChange={e => setForm(f => ({ ...f, full_name: e.target.value }))} placeholder="Иванов Иван" />
+                  <input
+                    className="input"
+                    value={inviteForm.full_name}
+                    onChange={e => setInviteForm(f => ({ ...f, full_name: e.target.value }))}
+                    placeholder="Иванов Иван"
+                  />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-text mb-1">Пароль *</label>
-                  <input type="password" className="input" value={form.password} onChange={e => setForm(f => ({ ...f, password: e.target.value }))} placeholder="Минимум 6 символов" />
+                  <label className="block text-xs font-medium text-text mb-1">Email *</label>
+                  <input
+                    type="email"
+                    className="input"
+                    value={inviteForm.email}
+                    onChange={e => setInviteForm(f => ({ ...f, email: e.target.value }))}
+                    placeholder="user@company.com"
+                    autoFocus
+                  />
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-text mb-1">Роль</label>
-                  <select className="input" value={form.role} onChange={e => setForm(f => ({ ...f, role: e.target.value }))}>
+                  <select
+                    className="input"
+                    value={inviteForm.role}
+                    onChange={e => setInviteForm(f => ({ ...f, role: e.target.value }))}
+                  >
                     <option value="member">Участник</option>
                     <option value="manager">Менеджер</option>
                     <option value="admin">Администратор</option>
                   </select>
                 </div>
 
-                {formError && <p className="text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2 break-words">{formError}</p>}
+                {inviteError && (
+                  <p className="text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2 break-words">
+                    {inviteError}
+                  </p>
+                )}
 
                 <div className="flex justify-end gap-2 pt-1">
-                  <button type="button" className="btn-secondary" onClick={() => setModalOpen(false)}>Отмена</button>
-                  <button type="submit" className="btn-primary flex items-center gap-2" disabled={saving}>
-                    {saving && <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />}
-                    Создать
+                  <button type="button" className="btn-secondary" onClick={() => setInviteOpen(false)}>Отмена</button>
+                  <button type="submit" className="btn-primary flex items-center gap-2" disabled={inviteSaving}>
+                    {inviteSaving && <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />}
+                    Отправить приглашение
                   </button>
                 </div>
               </form>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Delete confirm dialog */}
+      {confirmDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => !deleting && setConfirmDelete(null)} />
+          <div className="relative bg-card border border-border rounded-2xl shadow-2xl w-full max-w-sm p-5 sm:p-6">
+            <h2 className="text-base font-semibold text-text mb-2">Удалить пользователя?</h2>
+            <p className="text-sm text-muted mb-5">
+              <span className="text-text font-medium">{confirmDelete.full_name || confirmDelete.email}</span> будет полностью удалён из приложения. Восстановить нельзя.
+            </p>
+            <div className="flex justify-end gap-2">
+              <button
+                className="btn-secondary"
+                onClick={() => setConfirmDelete(null)}
+                disabled={deleting}
+              >
+                Отмена
+              </button>
+              <button
+                onClick={() => deleteMember(confirmDelete)}
+                disabled={deleting}
+                className="text-sm font-medium px-4 py-2 rounded-lg bg-red-500 text-white hover:bg-red-600 active:scale-95 transition-all disabled:opacity-50 flex items-center gap-2"
+              >
+                {deleting && <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />}
+                Удалить
+              </button>
+            </div>
           </div>
         </div>
       )}
