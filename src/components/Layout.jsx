@@ -75,7 +75,7 @@ export default function Layout() {
   const pageTitle = PAGE_TITLES[location.pathname] ?? 'VoiceTask'
 
   return (
-    <div className="min-h-screen bg-bg flex">
+    <div className="h-dvh bg-bg flex overflow-hidden">
       {sidebarOpen && (
         <div
           className="fixed inset-0 z-30 bg-black/50 backdrop-blur-sm md:hidden"
