@@ -113,8 +113,10 @@
                 color 0.15s ease, box-shadow 0.2s ease;
   }
 
-  html, body {
+  html, body, #root {
     /* Fix viewport so iOS doesn't rubber-band on the home screen.
+       The #root height: 100% is what lets Layout's h-dvh anchor against
+       the viewport instead of just sitting at content height.
        Pages that need scrolling have their own overflow-y-auto container
        in Layout.jsx. */
     height: 100%;

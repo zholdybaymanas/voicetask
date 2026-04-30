@@ -111,7 +111,7 @@ export default function Layout() {
           </button>
         </div>
 
-        <nav className="flex-1 px-3 py-3 space-y-0.5 overflow-y-auto">
+        <nav className="flex-1 min-h-0 px-3 py-3 space-y-0.5 overflow-y-auto">
           {NAV.map(({ path, end, label, icon }) => (
             <NavLink
               key={path}
@@ -138,7 +138,7 @@ export default function Layout() {
           ))}
         </nav>
 
-        <div className="px-3 pb-4 pt-2 border-t border-border">
+        <div className="px-3 pb-4 pt-2 border-t border-border shrink-0">
           <div className="flex items-center gap-2.5 px-2 py-2 rounded-lg hover:bg-hover transition-colors group">
             <div className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center text-primary text-xs font-bold shrink-0">
               {initials}
@@ -163,7 +163,7 @@ export default function Layout() {
         </div>
       </aside>
 
-      <main className="flex-1 min-w-0 flex flex-col">
+      <main className="flex-1 min-w-0 min-h-0 flex flex-col">
         <header className="h-14 bg-card border-b border-border px-4 sm:px-6 flex items-center gap-3 sm:gap-4 shrink-0">
           <button
             onClick={() => setSidebarOpen(v => !v)}
@@ -190,7 +190,7 @@ export default function Layout() {
           </Link>
         </header>
 
-        <div className="flex-1 overflow-y-auto p-4 sm:p-6 pb-24 sm:pb-6 bg-bg">
+        <div className="flex-1 min-h-0 overflow-y-auto p-4 sm:p-6 pb-24 sm:pb-6 bg-bg">
           <Outlet />
         </div>
       </main>
