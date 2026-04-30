@@ -47,7 +47,16 @@ export default function Layout() {
     typeof window !== 'undefined' ? window.innerWidth >= 768 : true
   )
   const [unread, setUnread] = useState(0)
+  const [signingOut, setSigningOut] = useState(false)
   const location = useLocation()
+
+  // Show the spinner *before* signOut wipes auth state — otherwise React
+  // batches both setStates and ProtectedRoute unmounts Layout in the same
+  // render, so the spinner never paints. Defer signOut by one tick.
+  function handleSignOut() {
+    setSigningOut(true)
+    setTimeout(signOut, 0)
+  }
 
   useEffect(() => {
     if (window.innerWidth < 768) setSidebarOpen(false)
@@ -150,14 +159,22 @@ export default function Layout() {
               )}
             </div>
             <button
-              onClick={signOut}
+              onClick={handleSignOut}
+              disabled={signingOut}
               title="Выйти"
-              className="md:opacity-0 md:group-hover:opacity-100 transition-opacity text-muted hover:text-text p-1 rounded"
+              aria-label={signingOut ? 'Выход…' : 'Выйти'}
+              className={`text-muted hover:text-text p-1 rounded transition-opacity disabled:opacity-50 ${
+                signingOut ? 'opacity-100' : 'md:opacity-0 md:group-hover:opacity-100'
+              }`}
             >
-              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round"
-                  d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15M12 9l-3 3m0 0l3 3m-3-3h12.75" />
-              </svg>
+              {signingOut ? (
+                <div className="w-3.5 h-3.5 border-2 border-muted border-t-transparent rounded-full animate-spin" />
+              ) : (
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round"
+                    d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15M12 9l-3 3m0 0l3 3m-3-3h12.75" />
+                </svg>
+              )}
             </button>
           </div>
         </div>

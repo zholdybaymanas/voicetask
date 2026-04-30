@@ -88,11 +88,28 @@ export function useAuth() {
     return { data, error }
   }
 
-  async function signOut() {
+  function signOut() {
+    // Instant UX: wipe local auth state synchronously so ProtectedRoute
+    // re-renders and redirects to /auth on the very next React commit,
+    // then revoke the refresh token in the background. We don't await
+    // Supabase — a slow network or expired token shouldn't block the user
+    // from leaving the app.
     setError(null)
-    const { error } = await supabase.auth.signOut()
-    if (error) setError(error.message)
-    return { error }
+    setUser(null)
+    setSession(null)
+    setProfile(null)
+    try {
+      for (let i = localStorage.length - 1; i >= 0; i--) {
+        const key = localStorage.key(i)
+        if (key?.startsWith('sb-') && key.endsWith('-auth-token')) {
+          localStorage.removeItem(key)
+        }
+      }
+    } catch {}
+    supabase.auth.signOut().catch(err => {
+      console.warn('[useAuth] background signOut failed:', err)
+    })
+    return { error: null }
   }
 
   return { session, user, profile, loading, error, signIn, signUp, signOut, resetPassword }
