@@ -22,11 +22,15 @@ export default function TeamPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError]     = useState(null)
 
-  const [inviteOpen,  setInviteOpen]  = useState(false)
-  const [inviteForm,  setInviteForm]  = useState({ email: '', full_name: '', role: 'member' })
-  const [inviteSaving, setInviteSaving] = useState(false)
-  const [inviteError,  setInviteError]  = useState('')
-  const [inviteSuccess, setInviteSuccess] = useState('')
+  const [createOpen,    setCreateOpen]    = useState(false)
+  const [createForm,    setCreateForm]    = useState({ email: '', full_name: '', password: '', role: 'member' })
+  const [showPassword,  setShowPassword]  = useState(false)
+  const [createSaving,  setCreateSaving]  = useState(false)
+  const [createError,   setCreateError]   = useState('')
+  // On success we keep email + password around so the admin can hand
+  // them to the new user (manual delivery — no SMTP in v1.0).
+  const [createdAccount, setCreatedAccount] = useState(null)
+  const [copyState, setCopyState] = useState('idle') // 'idle' | 'copied'
 
   const [openMenuId, setOpenMenuId] = useState(null)
   const [pendingActionId, setPendingActionId] = useState(null) // member.id while ban/unban in flight
@@ -77,34 +81,60 @@ export default function TeamPage() {
     return data
   }
 
-  async function handleInvite(e) {
-    e.preventDefault()
-    setInviteError('')
-    setInviteSuccess('')
-    if (!inviteForm.email.trim()) return setInviteError('Введите email')
+  function openCreate() {
+    setCreateForm({ email: '', full_name: '', password: '', role: 'member' })
+    setShowPassword(false)
+    setCreateError('')
+    setCreatedAccount(null)
+    setCopyState('idle')
+    setCreateOpen(true)
+  }
 
-    setInviteSaving(true)
+  function closeCreate() {
+    setCreateOpen(false)
+    setCreatedAccount(null)
+  }
+
+  async function handleCreate(e) {
+    e.preventDefault()
+    setCreateError('')
+    if (!createForm.email.trim())                   return setCreateError('Введите email')
+    if (!createForm.password || createForm.password.length < 6) return setCreateError('Пароль минимум 6 символов')
+
+    setCreateSaving(true)
     try {
       await callAdmin({
-        action:    'inviteUser',
-        email:     inviteForm.email.trim(),
-        full_name: inviteForm.full_name.trim(),
-        role:      inviteForm.role,
+        action:    'createUser',
+        email:     createForm.email.trim(),
+        password:  createForm.password,
+        full_name: createForm.full_name.trim(),
+        role:      createForm.role,
       })
-      setInviteSuccess(`Приглашение отправлено на ${inviteForm.email}`)
-      setInviteForm({ email: '', full_name: '', role: 'member' })
+      // Hold onto the credentials so the admin can copy them once.
+      setCreatedAccount({ email: createForm.email.trim(), password: createForm.password })
       loadMembers()
     } catch (err) {
-      console.error('[TeamPage] invite:', err)
+      console.error('[TeamPage] createUser:', err)
       if (/SERVICE_ROLE_KEY|SUPABASE_URL/i.test(err.message)) {
-        setInviteError('Не настроен SUPABASE_SERVICE_ROLE_KEY. См. DEPLOY.md.')
-      } else if (/SMTP|email/i.test(err.message) && /not configured|disabled/i.test(err.message)) {
-        setInviteError('SMTP в Supabase не настроен — письмо не отправлено. Включите Email в Supabase → Auth → Email Templates.')
+        setCreateError('Не настроен SUPABASE_SERVICE_ROLE_KEY. См. DEPLOY.md.')
       } else {
-        setInviteError(err.message)
+        setCreateError(err.message)
       }
     } finally {
-      setInviteSaving(false)
+      setCreateSaving(false)
+    }
+  }
+
+  async function copyCredentials() {
+    if (!createdAccount) return
+    const text = `Email: ${createdAccount.email}\nПароль: ${createdAccount.password}`
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopyState('copied')
+      setTimeout(() => setCopyState('idle'), 1500)
+    } catch (err) {
+      console.warn('[TeamPage] clipboard failed:', err)
+      showToast('Не удалось скопировать в буфер', 'error')
     }
   }
 
@@ -172,14 +202,14 @@ export default function TeamPage() {
         {isAdmin && (
           <button
             className="btn-primary flex items-center gap-1.5 text-sm shrink-0"
-            onClick={() => { setInviteOpen(true); setInviteError(''); setInviteSuccess('') }}
+            onClick={openCreate}
           >
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round"
                 d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
             </svg>
-            <span className="hidden sm:inline">Пригласить участника</span>
-            <span className="sm:hidden">Пригласить</span>
+            <span className="hidden sm:inline">Добавить участника</span>
+            <span className="sm:hidden">Добавить</span>
           </button>
         )}
       </div>
@@ -324,41 +354,82 @@ export default function TeamPage() {
         </div>
       )}
 
-      {/* Invite modal */}
-      {inviteOpen && (
+      {/* Add-member modal — direct account creation. SMTP intentionally
+          unused in v1.0; admin shares credentials with the user manually. */}
+      {createOpen && (
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center px-0 sm:px-4">
-          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setInviteOpen(false)} />
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={closeCreate} />
           <div className="relative bg-card border border-border rounded-t-2xl sm:rounded-2xl shadow-2xl w-full max-w-md p-5 sm:p-6">
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-base font-semibold text-text">Пригласить участника</h2>
-              <button onClick={() => setInviteOpen(false)} className="text-muted hover:text-text p-1 rounded-lg hover:bg-hover">
+              <h2 className="text-base font-semibold text-text">
+                {createdAccount ? 'Аккаунт создан' : 'Добавить участника'}
+              </h2>
+              <button onClick={closeCreate} className="text-muted hover:text-text p-1 rounded-lg hover:bg-hover">
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
                 </svg>
               </button>
             </div>
 
-            {inviteSuccess ? (
-              <div className="text-center py-4">
-                <div className="w-12 h-12 bg-emerald-500/15 rounded-full flex items-center justify-center mx-auto mb-3">
-                  <svg className="w-6 h-6 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
-                  </svg>
+            {createdAccount ? (
+              <div className="space-y-4">
+                <div className="flex justify-center">
+                  <div className="w-12 h-12 bg-emerald-500/15 rounded-full flex items-center justify-center">
+                    <svg className="w-6 h-6 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                    </svg>
+                  </div>
                 </div>
-                <p className="text-sm font-medium text-text mb-1">{inviteSuccess}</p>
-                <p className="text-xs text-muted mb-4">
-                  Пользователь получит письмо со ссылкой для установки пароля.
+
+                <p className="text-sm text-muted text-center">
+                  Передайте участнику данные для входа:
                 </p>
-                <button className="btn-primary" onClick={() => { setInviteSuccess(''); setInviteOpen(false) }}>Готово</button>
+
+                <div className="bg-hover rounded-lg p-3 space-y-2 text-sm font-mono">
+                  <div className="flex items-baseline gap-2">
+                    <span className="text-xs text-muted shrink-0 w-16">Email:</span>
+                    <span className="text-text break-all">{createdAccount.email}</span>
+                  </div>
+                  <div className="flex items-baseline gap-2">
+                    <span className="text-xs text-muted shrink-0 w-16">Пароль:</span>
+                    <span className="text-text break-all">{createdAccount.password}</span>
+                  </div>
+                </div>
+
+                <div className="flex justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={copyCredentials}
+                    className="btn-secondary flex items-center gap-1.5"
+                  >
+                    {copyState === 'copied' ? (
+                      <>
+                        <svg className="w-3.5 h-3.5 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                        </svg>
+                        Скопировано
+                      </>
+                    ) : (
+                      <>
+                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                          <path strokeLinecap="round" strokeLinejoin="round"
+                            d="M15.75 17.25v3.375c0 .621-.504 1.125-1.125 1.125h-9.75a1.125 1.125 0 01-1.125-1.125V7.875c0-.621.504-1.125 1.125-1.125H6.75a9.06 9.06 0 011.5.124m7.5 10.376h3.375c.621 0 1.125-.504 1.125-1.125V11.25c0-4.46-3.243-8.161-7.5-8.876a9.06 9.06 0 00-1.5-.124H9.375c-.621 0-1.125.504-1.125 1.125v3.5m7.5 10.375H9.375a1.125 1.125 0 01-1.125-1.125v-9.25m12 6.625v-1.875a3.375 3.375 0 00-3.375-3.375h-1.5a1.125 1.125 0 01-1.125-1.125v-1.5a3.375 3.375 0 00-3.375-3.375H9.75" />
+                        </svg>
+                        Скопировать данные
+                      </>
+                    )}
+                  </button>
+                  <button type="button" className="btn-primary" onClick={closeCreate}>Готово</button>
+                </div>
               </div>
             ) : (
-              <form onSubmit={handleInvite} className="space-y-3">
+              <form onSubmit={handleCreate} className="space-y-3">
                 <div>
                   <label className="block text-xs font-medium text-text mb-1">Имя</label>
                   <input
                     className="input"
-                    value={inviteForm.full_name}
-                    onChange={e => setInviteForm(f => ({ ...f, full_name: e.target.value }))}
+                    value={createForm.full_name}
+                    onChange={e => setCreateForm(f => ({ ...f, full_name: e.target.value }))}
                     placeholder="Иванов Иван"
                   />
                 </div>
@@ -367,18 +438,50 @@ export default function TeamPage() {
                   <input
                     type="email"
                     className="input"
-                    value={inviteForm.email}
-                    onChange={e => setInviteForm(f => ({ ...f, email: e.target.value }))}
+                    value={createForm.email}
+                    onChange={e => setCreateForm(f => ({ ...f, email: e.target.value }))}
                     placeholder="user@company.com"
                     autoFocus
                   />
                 </div>
                 <div>
+                  <label className="block text-xs font-medium text-text mb-1">Пароль *</label>
+                  <div className="relative">
+                    <input
+                      type={showPassword ? 'text' : 'password'}
+                      className="input pr-10"
+                      value={createForm.password}
+                      onChange={e => setCreateForm(f => ({ ...f, password: e.target.value }))}
+                      placeholder="Минимум 6 символов"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(v => !v)}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-muted hover:text-text p-1 rounded"
+                      aria-label={showPassword ? 'Скрыть пароль' : 'Показать пароль'}
+                      tabIndex={-1}
+                    >
+                      {showPassword ? (
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                          <path strokeLinecap="round" strokeLinejoin="round"
+                            d="M3.98 8.223A10.477 10.477 0 001.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.45 10.45 0 0112 4.5c4.756 0 8.773 3.162 10.065 7.498a10.523 10.523 0 01-4.293 5.774M6.228 6.228L3 3m3.228 3.228l3.65 3.65m7.894 7.894L21 21m-3.228-3.228l-3.65-3.65m0 0a3 3 0 10-4.243-4.243m4.243 4.243L9.88 9.88" />
+                        </svg>
+                      ) : (
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                          <path strokeLinecap="round" strokeLinejoin="round"
+                            d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                        </svg>
+                      )}
+                    </button>
+                  </div>
+                </div>
+                <div>
                   <label className="block text-xs font-medium text-text mb-1">Роль</label>
                   <select
                     className="input"
-                    value={inviteForm.role}
-                    onChange={e => setInviteForm(f => ({ ...f, role: e.target.value }))}
+                    value={createForm.role}
+                    onChange={e => setCreateForm(f => ({ ...f, role: e.target.value }))}
                   >
                     <option value="member">Участник</option>
                     <option value="manager">Менеджер</option>
@@ -386,17 +489,17 @@ export default function TeamPage() {
                   </select>
                 </div>
 
-                {inviteError && (
+                {createError && (
                   <p className="text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2 break-words">
-                    {inviteError}
+                    {createError}
                   </p>
                 )}
 
                 <div className="flex justify-end gap-2 pt-1">
-                  <button type="button" className="btn-secondary" onClick={() => setInviteOpen(false)}>Отмена</button>
-                  <button type="submit" className="btn-primary flex items-center gap-2" disabled={inviteSaving}>
-                    {inviteSaving && <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />}
-                    Отправить приглашение
+                  <button type="button" className="btn-secondary" onClick={closeCreate}>Отмена</button>
+                  <button type="submit" className="btn-primary flex items-center gap-2" disabled={createSaving}>
+                    {createSaving && <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />}
+                    Создать
                   </button>
                 </div>
               </form>

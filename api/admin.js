@@ -1,7 +1,6 @@
 // POST /api/admin
 // Body shapes by action:
 //   { action: 'createUser', email, password, full_name, role }
-//   { action: 'inviteUser', email, full_name, role }
 //   { action: 'banUser',    user_id }
 //   { action: 'unbanUser',  user_id }
 //   { action: 'deleteUser', user_id }
@@ -11,6 +10,11 @@
 //
 // banUser/unbanUser/deleteUser refuse to act on the caller themselves —
 // no admin can ban or delete their own account through this endpoint.
+//
+// Note: SMTP / email-invite is intentionally NOT used in v1.0 — the team
+// is small (<20 users) and admins share credentials manually. The
+// `email` column is still stored in profiles because v1.1 will add
+// task-assignment notifications via SMTP (see TODO in handleCreateUser).
 import { createClient } from '@supabase/supabase-js'
 
 // Effectively-permanent ban duration for Supabase Auth.
@@ -61,7 +65,6 @@ export default async function handler(req, res) {
 
   switch (action) {
     case 'createUser': return handleCreateUser(sb, body, res)
-    case 'inviteUser': return handleInviteUser(sb, body, res)
     case 'banUser':    return handleBanUser(sb, body, caller, res)
     case 'unbanUser':  return handleUnbanUser(sb, body, res)
     case 'deleteUser': return handleDeleteUser(sb, body, caller, res)
@@ -106,56 +109,16 @@ async function handleCreateUser(sb, { email, password, full_name, role = 'member
     })
   }
 
-  return res.status(200).json({
-    id:        userId,
-    email:     userEmail,
-    full_name: profileData?.full_name ?? trimmedFullName,
-    role:      profileData?.role ?? role,
-  })
-}
-
-// ─── inviteUser ─────────────────────────────────────────────────────────
-// Sends a "Set your password" email via Supabase Auth. Pre-creates the
-// profile row so the role is correct as soon as the invitee accepts.
-async function handleInviteUser(sb, { email, full_name, role = 'member' }, res) {
-  if (!email?.trim()) return res.status(400).json({ error: 'Укажите email' })
-  if (!['member', 'manager', 'admin'].includes(role)) {
-    return res.status(400).json({ error: 'Недопустимая роль' })
-  }
-
-  const trimmedFullName = full_name?.trim() || null
-
-  const { data, error } = await sb.auth.admin.inviteUserByEmail(email.trim(), {
-    data: { full_name: trimmedFullName ?? '' },
-  })
-  if (error) {
-    console.error('[admin] inviteUserByEmail:', error)
-    return res.status(400).json({ error: error.message })
-  }
-
-  const userId = data.user.id
-  const userEmail = data.user.email
-
-  const { data: profileData, error: profileErr } = await sb
-    .from('profiles')
-    .upsert({ id: userId, email: userEmail, full_name: trimmedFullName, role }, { onConflict: 'id' })
-    .select()
-    .single()
-
-  if (profileErr) {
-    console.error('[admin] profile upsert (invite):', profileErr)
-    return res.status(200).json({
-      id: userId, email: userEmail, full_name: trimmedFullName, role,
-      warning: `Приглашение отправлено, но профиль не сохранён: ${profileErr.message}`,
-    })
-  }
+  // TODO v1.1: sendTaskNotification(userEmail, ...) — once SMTP is wired
+  // up we'll send a "Welcome / your account is ready" email here, plus
+  // notifications when a task is assigned to this user. The `email`
+  // column on profiles exists specifically to support this.
 
   return res.status(200).json({
     id:        userId,
     email:     userEmail,
     full_name: profileData?.full_name ?? trimmedFullName,
     role:      profileData?.role ?? role,
-    invited:   true,
   })
 }
 
