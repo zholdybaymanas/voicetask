@@ -85,8 +85,12 @@ export default function KanbanPage({ projectFilter = null } = {}) {
     if (!silent) setLoading(true)
     setError(null)
     try {
+      // Project-scoped Kanban shows every task in the project — the
+      // shared board is meant to give all participants the full picture.
+      // Global Kanban (no projectFilter) still limits to the user's own
+      // tasks via taskVisibilityFilter.
       const taskFilters = [
-        ...taskVisibilityFilter(user, profile),
+        ...(projectFilter ? [] : taskVisibilityFilter(user, profile)),
         ...(projectFilter ? [`project_id=eq.${projectFilter}`] : []),
         'order=sort_order.desc.nullslast,created_at.desc',
       ]

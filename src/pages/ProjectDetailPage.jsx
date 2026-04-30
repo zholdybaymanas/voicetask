@@ -2,8 +2,6 @@ import { useState, useEffect, useMemo } from 'react'
 import { Link, useParams, useNavigate } from 'react-router-dom'
 import { supabase, supabaseRest } from '../lib/supabase'
 import { toggleTaskDone } from '../lib/taskActions'
-import { taskVisibilityFilter } from '../lib/taskAccess'
-import { useAuth } from '../hooks/useAuth'
 import { descriptionPreview } from '../lib/description'
 import TaskDetailDrawer from '../components/TaskDetailDrawer'
 import TaskCheck from '../components/TaskCheck'
@@ -31,7 +29,6 @@ function normStatus(s) {
 export default function ProjectDetailPage() {
   const { id } = useParams()
   const navigate = useNavigate()
-  const { user, profile } = useAuth()
   const [project, setProject] = useState(null)
   const [tasks, setTasks]     = useState([])
   const [team, setTeam]       = useState([])
@@ -52,7 +49,7 @@ export default function ProjectDetailPage() {
       .subscribe()
     return () => supabase.removeChannel(ch)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id, user?.id, profile?.role])
+  }, [id])
 
   async function loadAll({ silent = false } = {}) {
     if (!silent) setLoading(true)
@@ -60,11 +57,13 @@ export default function ProjectDetailPage() {
     try {
       const [projectRes, tasksRes, profilesRes, projectsRes] = await Promise.all([
         supabaseRest('projects', { filters: [`id=eq.${id}`] }),
+        // Project page shows every task in the project — все участники
+        // проекта видят полную картину. Personal scoping happens on
+        // /tasks (inbox/sent), not here.
         supabaseRest('tasks', {
           select: '*',
           filters: [
             `project_id=eq.${id}`,
-            ...taskVisibilityFilter(user, profile),
             'order=sort_order.desc.nullslast,created_at.desc',
           ],
         }),
