@@ -257,6 +257,154 @@ update profiles set full_name = full_name where full_name is not null;
 update projects set name      = name      where name      is not null;
 ```
 
+### 1.2.7. Multi-assignee + project membership
+
+Две связующие таблицы и обновлённые RLS-политики, чтобы (а) задаче можно было назначить несколько исполнителей и (б) member видел только проекты в которых он состоит.
+
+**Таблицы.** `tasks.assignee_id` и `tasks.created_by` сохраняются — `assignee_id` теперь играет роль *первичного* исполнителя (для legacy-кода и быстрых индексов), а `task_assignees` хранит полный список. Триггеры держат их в синхроне.
+
+```sql
+-- task_assignees: несколько исполнителей на одну задачу
+create table if not exists task_assignees (
+  task_id    uuid references tasks(id)    on delete cascade,
+  user_id    uuid references profiles(id) on delete cascade,
+  created_at timestamptz default now(),
+  primary key (task_id, user_id)
+);
+create index if not exists task_assignees_user_id_idx on task_assignees(user_id);
+alter table task_assignees enable row level security;
+
+-- project_members: кто видит какой проект
+create table if not exists project_members (
+  project_id uuid references projects(id) on delete cascade,
+  user_id    uuid references profiles(id) on delete cascade,
+  created_at timestamptz default now(),
+  primary key (project_id, user_id)
+);
+create index if not exists project_members_user_id_idx on project_members(user_id);
+alter table project_members enable row level security;
+
+-- Хелпер для проверки роли — устраняет повторяющийся exists-подзапрос
+create or replace function is_admin() returns boolean as $$
+  select exists (select 1 from profiles where id = auth.uid() and role = 'admin')
+$$ language sql stable security definer;
+
+-- ─── triggers: keep tasks.assignee_id synced with task_assignees ─────────
+create or replace function sync_task_primary_assignee()
+returns trigger as $$
+begin
+  if (TG_OP = 'INSERT') then
+    update tasks set assignee_id = NEW.user_id
+      where id = NEW.task_id and assignee_id is null;
+  elsif (TG_OP = 'DELETE') then
+    update tasks
+      set assignee_id = (
+        select user_id from task_assignees
+        where task_id = OLD.task_id
+        order by created_at limit 1
+      )
+      where id = OLD.task_id and assignee_id = OLD.user_id;
+  end if;
+  return null;
+end;
+$$ language plpgsql security definer;
+
+drop trigger if exists task_assignees_sync_primary on task_assignees;
+create trigger task_assignees_sync_primary
+  after insert or delete on task_assignees
+  for each row execute function sync_task_primary_assignee();
+
+-- Reverse: when tasks.assignee_id is set/changed, mirror into task_assignees
+create or replace function sync_task_assignees_from_primary()
+returns trigger as $$
+begin
+  if NEW.assignee_id is not null
+     and (TG_OP = 'INSERT' or NEW.assignee_id is distinct from OLD.assignee_id) then
+    insert into task_assignees (task_id, user_id)
+      values (NEW.id, NEW.assignee_id) on conflict do nothing;
+  end if;
+  return NEW;
+end;
+$$ language plpgsql security definer;
+
+drop trigger if exists tasks_sync_assignees on tasks;
+create trigger tasks_sync_assignees
+  after insert or update of assignee_id on tasks
+  for each row execute function sync_task_assignees_from_primary();
+
+-- Backfill: existing tasks.assignee_id → task_assignees rows
+insert into task_assignees (task_id, user_id)
+  select id, assignee_id from tasks where assignee_id is not null
+  on conflict do nothing;
+
+-- ─── RLS: task_assignees ─────────────────────────────────────────────────
+drop policy if exists "task_assignees_select" on task_assignees;
+create policy "task_assignees_select" on task_assignees for select to authenticated
+using (
+  is_admin()
+  or user_id = auth.uid()
+  or exists (
+    select 1 from tasks t
+    where t.id = task_assignees.task_id
+      and (t.created_by = auth.uid() or t.assignee_id = auth.uid())
+  )
+);
+
+drop policy if exists "task_assignees_insert" on task_assignees;
+create policy "task_assignees_insert" on task_assignees for insert to authenticated
+with check (
+  is_admin()
+  or exists (select 1 from tasks t where t.id = task_assignees.task_id and t.created_by = auth.uid())
+);
+
+drop policy if exists "task_assignees_delete" on task_assignees;
+create policy "task_assignees_delete" on task_assignees for delete to authenticated
+using (
+  is_admin()
+  or exists (select 1 from tasks t where t.id = task_assignees.task_id and t.created_by = auth.uid())
+);
+
+-- ─── RLS: project_members ───────────────────────────────────────────────
+-- Members read their own membership rows; admin reads all.
+-- Insert/Delete go through /api/admin (service-role) so no INSERT/DELETE
+-- policies are needed.
+drop policy if exists "project_members_select" on project_members;
+create policy "project_members_select" on project_members for select to authenticated
+using (is_admin() or user_id = auth.uid());
+
+-- ─── RLS: projects (replaces 1.3 projects_select_all) ──────────────────
+drop policy if exists "projects_select_all" on projects;
+drop policy if exists "projects_select"     on projects;
+create policy "projects_select" on projects for select to authenticated
+using (
+  is_admin()
+  or owner_id = auth.uid()
+  or exists (
+    select 1 from project_members pm
+    where pm.project_id = projects.id and pm.user_id = auth.uid()
+  )
+);
+
+-- ─── RLS: tasks (replaces 1.3 tasks_select_own / tasks_select_admin) ───
+drop policy if exists "tasks_select_own"   on tasks;
+drop policy if exists "tasks_select_admin" on tasks;
+drop policy if exists "tasks_select"       on tasks;
+create policy "tasks_select" on tasks for select to authenticated
+using (
+  is_admin()
+  or created_by  = auth.uid()
+  or assignee_id = auth.uid()
+  or exists (
+    select 1 from task_assignees ta
+    where ta.task_id = tasks.id and ta.user_id = auth.uid()
+  )
+  or exists (
+    select 1 from project_members pm
+    where pm.project_id = tasks.project_id and pm.user_id = auth.uid()
+  )
+);
+```
+
 ### 1.3. RLS политики (если ещё не настроены)
 
 Минимальные политики для работы приложения:

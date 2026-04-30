@@ -1,9 +1,10 @@
 // POST /api/admin
 // Body shapes by action:
-//   { action: 'createUser', email, password, full_name, role }
-//   { action: 'banUser',    user_id }
-//   { action: 'unbanUser',  user_id }
-//   { action: 'deleteUser', user_id }
+//   { action: 'createUser',           email, password, full_name, role }
+//   { action: 'banUser',              user_id }
+//   { action: 'unbanUser',            user_id }
+//   { action: 'deleteUser',           user_id }
+//   { action: 'updateProjectMembers', project_id, user_ids: [...] }
 // AUTH: must be called by an authenticated user with role='admin'
 //       (verified via Supabase JWT in Authorization: Bearer header).
 // Requires SUPABASE_SERVICE_ROLE_KEY (server-only) for the privileged ops.
@@ -64,11 +65,12 @@ export default async function handler(req, res) {
   const { action } = body
 
   switch (action) {
-    case 'createUser': return handleCreateUser(sb, body, res)
-    case 'banUser':    return handleBanUser(sb, body, caller, res)
-    case 'unbanUser':  return handleUnbanUser(sb, body, res)
-    case 'deleteUser': return handleDeleteUser(sb, body, caller, res)
-    default:           return res.status(400).json({ error: `Неизвестный action: ${action}` })
+    case 'createUser':           return handleCreateUser(sb, body, res)
+    case 'banUser':              return handleBanUser(sb, body, caller, res)
+    case 'unbanUser':            return handleUnbanUser(sb, body, res)
+    case 'deleteUser':           return handleDeleteUser(sb, body, caller, res)
+    case 'updateProjectMembers': return handleUpdateProjectMembers(sb, body, res)
+    default: return res.status(400).json({ error: `Неизвестный action: ${action}` })
   }
 }
 
@@ -167,4 +169,31 @@ async function handleDeleteUser(sb, { user_id }, caller, res) {
   const { error: profErr } = await sb.from('profiles').delete().eq('id', user_id)
   if (profErr && profErr.code !== 'PGRST116') console.warn('[admin] deleteUser profile cleanup:', profErr)
   return res.status(200).json({ id: user_id, deleted: true })
+}
+
+// ─── updateProjectMembers ───────────────────────────────────────────────
+// Replaces a project's membership set in one shot. Easier than diffing
+// on the client — we delete everything and re-insert. Both ops bypass
+// RLS via the service-role client.
+async function handleUpdateProjectMembers(sb, { project_id, user_ids }, res) {
+  if (!project_id) return res.status(400).json({ error: 'Не указан project_id' })
+  if (!Array.isArray(user_ids)) return res.status(400).json({ error: 'user_ids должен быть массивом' })
+
+  const { error: delErr } = await sb.from('project_members').delete().eq('project_id', project_id)
+  if (delErr) {
+    console.error('[admin] updateProjectMembers delete:', delErr)
+    return res.status(400).json({ error: delErr.message })
+  }
+
+  if (user_ids.length === 0) {
+    return res.status(200).json({ project_id, user_ids: [] })
+  }
+
+  const rows = user_ids.map(user_id => ({ project_id, user_id }))
+  const { error: insErr } = await sb.from('project_members').insert(rows)
+  if (insErr) {
+    console.error('[admin] updateProjectMembers insert:', insErr)
+    return res.status(400).json({ error: insErr.message })
+  }
+  return res.status(200).json({ project_id, user_ids })
 }

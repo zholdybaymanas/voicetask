@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { supabasePatch, supabaseDelete } from '../lib/supabase'
+import { supabaseRest, supabasePatch, supabaseDelete } from '../lib/supabase'
 import { syncTaskToGoogleCalendar } from '../lib/googleCalendar'
 import { parseDescription, serializeDescription, newSubtaskId } from '../lib/description'
 import { useToast } from '../contexts/ToastContext'
@@ -12,7 +12,12 @@ export default function TaskDetailDrawer({ task, projects, team, onClose, onUpda
   const [text, setText]           = useState('')
   const [subtasks, setSubtasks]   = useState([])
   const [status, setStatus]       = useState('pending')
-  const [assignee, setAssignee]   = useState('')
+  // Multi-assignee. The first id (when set) maps onto tasks.assignee_id —
+  // a DB trigger keeps that legacy column synced with the membership in
+  // task_assignees, so the UI only needs to manipulate the list here.
+  const [assigneeIds, setAssigneeIds] = useState([])
+  const [pickerOpen, setPickerOpen]   = useState(false)
+  const pickerRef = useRef(null)
   const [project, setProject]     = useState('')
   const [dueDate, setDueDate]     = useState('')
   const [priority, setPriority]   = useState('medium')
@@ -30,7 +35,18 @@ export default function TaskDetailDrawer({ task, projects, team, onClose, onUpda
     setText(parsed.text)
     setSubtasks(parsed.subtasks)
     setStatus(task.status === 'todo' ? 'pending' : (task.status ?? 'pending'))
-    setAssignee(task.assignee_id ?? '')
+    // Seed assignees from the legacy column instantly, then fetch the
+    // full list from task_assignees so secondary assignees show up too.
+    setAssigneeIds(task.assignee_id ? [task.assignee_id] : [])
+    setPickerOpen(false)
+    supabaseRest('task_assignees', { select: 'user_id', filters: [`task_id=eq.${task.id}`] })
+      .then(({ data, error }) => {
+        if (error) {
+          console.warn('[TaskDetail] task_assignees load:', error)
+          return
+        }
+        setAssigneeIds((data ?? []).map(r => r.user_id))
+      })
     setProject(task.project_id ?? '')
     setDueDate(task.due_date ?? '')
     setPriority(task.priority ?? 'medium')
@@ -45,6 +61,16 @@ export default function TaskDetailDrawer({ task, projects, team, onClose, onUpda
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [onClose])
+
+  // Close the assignee picker when the user clicks elsewhere.
+  useEffect(() => {
+    if (!pickerOpen) return
+    function onDoc(e) {
+      if (pickerRef.current && !pickerRef.current.contains(e.target)) setPickerOpen(false)
+    }
+    document.addEventListener('mousedown', onDoc)
+    return () => document.removeEventListener('mousedown', onDoc)
+  }, [pickerOpen])
 
   if (!task) return null
 
@@ -102,10 +128,47 @@ export default function TaskDetailDrawer({ task, projects, team, onClose, onUpda
     setStatus(s)
     patch({ status: s })
   }
-  function changeAssignee(id) {
-    setAssignee(id)
-    patch({ assignee_id: id || null })
+
+  // Add or remove an assignee. Optimistically update local state first,
+  // then write the change to task_assignees. The DB trigger keeps
+  // tasks.assignee_id synced (set to the first row when present, or to
+  // null when the list empties), so we don't touch that column here.
+  async function toggleAssignee(userId) {
+    const isAssigned = assigneeIds.includes(userId)
+    const next = isAssigned
+      ? assigneeIds.filter(id => id !== userId)
+      : [...assigneeIds, userId]
+    setAssigneeIds(next)
+    setError('')
+
+    let result
+    if (isAssigned) {
+      result = await supabaseRest('task_assignees', {
+        method:  'DELETE',
+        filters: [`task_id=eq.${task.id}`, `user_id=eq.${userId}`],
+      })
+    } else {
+      result = await supabaseRest('task_assignees', {
+        method: 'POST',
+        body:   { task_id: task.id, user_id: userId },
+      })
+    }
+
+    if (result?.error) {
+      console.error('[TaskDetail] toggleAssignee:', result.error)
+      setAssigneeIds(assigneeIds) // revert
+      setError(result.error.message ?? 'Не удалось сохранить')
+      return
+    }
+
+    showToast('Сохранено', 'success', 1000)
+    // Surface a fresh task to the parent so its list reflects the new
+    // primary assignee_id (the trigger updated it server-side).
+    const refreshed = await supabaseRest('tasks', { filters: [`id=eq.${task.id}`] })
+    const updated = refreshed.data?.[0]
+    if (updated) onUpdated?.(updated)
   }
+
   function changeProject(id) {
     setProject(id)
     patch({ project_id: id || null })
@@ -229,11 +292,78 @@ export default function TaskDetailDrawer({ task, projects, team, onClose, onUpda
               <option value="done">Выполнена</option>
             </select>
 
-            <label className="text-xs text-muted">Исполнитель</label>
-            <select className="input" value={assignee} onChange={e => changeAssignee(e.target.value)}>
-              <option value="">— не назначен —</option>
-              {team.map(u => <option key={u.id} value={u.id}>{u.full_name || u.email}</option>)}
-            </select>
+            <label className="text-xs text-muted self-start mt-2">Исполнители</label>
+            <div ref={pickerRef} className="relative">
+              <button
+                type="button"
+                onClick={() => setPickerOpen(v => !v)}
+                className="input flex flex-wrap gap-1 items-center text-left min-h-[2.5rem] cursor-pointer"
+                aria-haspopup="listbox"
+                aria-expanded={pickerOpen}
+              >
+                {assigneeIds.length === 0 ? (
+                  <span className="text-muted">— не назначены —</span>
+                ) : (
+                  assigneeIds.map(id => {
+                    const m = team.find(u => u.id === id)
+                    const name = m?.full_name || m?.email || '?'
+                    return (
+                      <span
+                        key={id}
+                        className="inline-flex items-center gap-1 bg-primary/10 text-primary text-xs font-medium px-2 py-0.5 rounded-full"
+                      >
+                        {name}
+                        <span
+                          role="button"
+                          tabIndex={0}
+                          onClick={e => { e.stopPropagation(); toggleAssignee(id) }}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault(); e.stopPropagation(); toggleAssignee(id)
+                            }
+                          }}
+                          aria-label={`Удалить ${name}`}
+                          className="hover:text-text leading-none cursor-pointer"
+                        >
+                          ×
+                        </span>
+                      </span>
+                    )
+                  })
+                )}
+                <svg className="w-3.5 h-3.5 text-muted ml-auto shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+                </svg>
+              </button>
+              {pickerOpen && (
+                <div
+                  role="listbox"
+                  className="absolute left-0 right-0 mt-1 z-20 max-h-60 overflow-y-auto bg-card border border-border rounded-lg shadow-card-hover py-1"
+                >
+                  {team.length === 0 ? (
+                    <p className="px-3 py-2 text-xs text-muted">Нет участников</p>
+                  ) : (
+                    team.map(u => {
+                      const checked = assigneeIds.includes(u.id)
+                      return (
+                        <label
+                          key={u.id}
+                          className="flex items-center gap-2 px-3 py-1.5 hover:bg-hover cursor-pointer"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => toggleAssignee(u.id)}
+                            className="accent-primary"
+                          />
+                          <span className="text-sm text-text truncate">{u.full_name || u.email}</span>
+                        </label>
+                      )
+                    })
+                  )}
+                </div>
+              )}
+            </div>
 
             <label className="text-xs text-muted">Проект</label>
             <select className="input" value={project} onChange={e => changeProject(e.target.value)}>

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { supabaseRest, supabasePatch, supabaseDelete, getCurrentUser } from '../lib/supabase'
+import { supabaseRest, supabasePatch, supabaseDelete, getCurrentUser, getAuthHeader } from '../lib/supabase'
 import { taskVisibilityFilter } from '../lib/taskAccess'
 import { useAuth } from '../hooks/useAuth'
 
@@ -21,6 +21,16 @@ export default function ProjectsPage() {
   const [formError, setFormError]   = useState('')
   const [confirmDeleteId, setConfirmDeleteId] = useState(null)
   const [deleting, setDeleting]     = useState(false)
+
+  // Project members modal — admin only. We load all profiles once and
+  // the current member set per opened project.
+  const [membersModalProject, setMembersModalProject] = useState(null)
+  const [allProfiles, setAllProfiles]   = useState([])
+  const [memberIds,   setMemberIds]     = useState(new Set())
+  const [membersSaving, setMembersSaving] = useState(false)
+  const [membersError,  setMembersError]  = useState('')
+
+  const isAdmin = profile?.role === 'admin'
 
   useEffect(() => { loadProjects() /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [user?.id, profile?.role])
 
@@ -107,6 +117,60 @@ export default function ProjectsPage() {
     loadProjects()
   }
 
+  async function openMembers(project) {
+    setMembersModalProject(project)
+    setMembersError('')
+    setMembersSaving(false)
+    // Load profiles + current membership in parallel.
+    const [profilesRes, membersRes] = await Promise.all([
+      allProfiles.length > 0
+        ? Promise.resolve({ data: allProfiles, error: null })
+        : supabaseRest('profiles', { select: 'id,full_name,email,role', filters: ['order=full_name.asc.nullslast,email.asc'] }),
+      supabaseRest('project_members', { select: 'user_id', filters: [`project_id=eq.${project.id}`] }),
+    ])
+    if (profilesRes.error) {
+      setMembersError(profilesRes.error.message ?? 'Не удалось загрузить участников')
+      return
+    }
+    if (allProfiles.length === 0) setAllProfiles(profilesRes.data ?? [])
+    setMemberIds(new Set((membersRes.data ?? []).map(r => r.user_id)))
+  }
+
+  function toggleMember(userId) {
+    setMemberIds(prev => {
+      const next = new Set(prev)
+      if (next.has(userId)) next.delete(userId)
+      else next.add(userId)
+      return next
+    })
+  }
+
+  async function saveMembers() {
+    if (!membersModalProject) return
+    setMembersSaving(true)
+    setMembersError('')
+    try {
+      const authHeaders = await getAuthHeader()
+      const res = await fetch('/api/admin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
+        body: JSON.stringify({
+          action:     'updateProjectMembers',
+          project_id: membersModalProject.id,
+          user_ids:   [...memberIds],
+        }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error ?? `Ошибка ${res.status}`)
+      setMembersModalProject(null)
+    } catch (err) {
+      console.error('[ProjectsPage] saveMembers:', err)
+      setMembersError(err.message)
+    } finally {
+      setMembersSaving(false)
+    }
+  }
+
   async function deleteProject(id) {
     setDeleting(true)
     const { error } = await supabaseDelete('projects', id)
@@ -185,6 +249,18 @@ export default function ProjectsPage() {
                       )}
                     </div>
                     <div className="flex items-center gap-0.5 shrink-0 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
+                      {isAdmin && (
+                        <button
+                          onClick={e => { e.stopPropagation(); openMembers(p) }}
+                          title="Участники проекта"
+                          className="text-muted hover:text-text p-1 rounded"
+                        >
+                          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round"
+                              d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z" />
+                          </svg>
+                        </button>
+                      )}
                       <button
                         onClick={e => { e.stopPropagation(); openEdit(p) }}
                         title="Редактировать проект"
@@ -299,6 +375,76 @@ export default function ProjectsPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Project members modal — admin only. Replaces the project's
+          membership set in one shot via /api/admin updateProjectMembers. */}
+      {membersModalProject && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center px-0 sm:px-4">
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => !membersSaving && setMembersModalProject(null)} />
+          <div className="relative bg-card border border-border rounded-t-2xl sm:rounded-2xl shadow-2xl w-full max-w-md p-5 sm:p-6">
+            <div className="flex items-center justify-between mb-1">
+              <h2 className="text-base font-semibold text-text">Участники проекта</h2>
+              <button onClick={() => !membersSaving && setMembersModalProject(null)} className="text-muted hover:text-text p-1 rounded-lg hover:bg-hover">
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <p className="text-xs text-muted mb-4 truncate">«{membersModalProject.name}»</p>
+
+            <div className="max-h-72 overflow-y-auto -mx-2 mb-4 rounded-lg border border-border divide-y divide-border">
+              {allProfiles.length === 0 ? (
+                <p className="text-sm text-muted px-3 py-4">Загрузка…</p>
+              ) : (
+                allProfiles.map(u => {
+                  const checked = memberIds.has(u.id)
+                  const userIsAdmin = u.role === 'admin'
+                  return (
+                    <label
+                      key={u.id}
+                      className={`flex items-center gap-3 px-3 py-2 hover:bg-hover cursor-pointer ${userIsAdmin ? 'opacity-70' : ''}`}
+                      title={userIsAdmin ? 'Администраторы видят все проекты автоматически' : undefined}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked || userIsAdmin}
+                        onChange={() => !userIsAdmin && toggleMember(u.id)}
+                        disabled={userIsAdmin}
+                        className="accent-primary"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm text-text truncate">{u.full_name || u.email}</p>
+                        {u.full_name && <p className="text-xs text-muted truncate">{u.email}</p>}
+                      </div>
+                      {userIsAdmin && (
+                        <span className="text-[10px] uppercase tracking-wide font-medium px-1.5 py-0.5 rounded bg-primary/15 text-primary shrink-0">
+                          admin
+                        </span>
+                      )}
+                    </label>
+                  )
+                })
+              )}
+            </div>
+
+            {membersError && (
+              <p className="text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2 mb-3 break-words">
+                {membersError}
+              </p>
+            )}
+
+            <div className="flex justify-end gap-2">
+              <button type="button" className="btn-secondary" disabled={membersSaving} onClick={() => setMembersModalProject(null)}>
+                Отмена
+              </button>
+              <button type="button" className="btn-primary flex items-center gap-2" disabled={membersSaving} onClick={saveMembers}>
+                {membersSaving && <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />}
+                Сохранить
+              </button>
+            </div>
           </div>
         </div>
       )}
