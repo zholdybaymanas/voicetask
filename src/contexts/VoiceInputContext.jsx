@@ -1,27 +1,39 @@
 import { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react'
 import { supabaseRest, getCurrentUser, getAuthHeader } from '../lib/supabase'
 import { syncTaskToGoogleCalendar } from '../lib/googleCalendar'
-import { isIOS, isStandalonePWA } from '../lib/platform'
 
-// Detect once at module load. iOS Safari blocks SpeechRecognition when the
-// app runs in standalone (installed-PWA) mode — the API exists on the
-// window but firing .start() silently does nothing. We treat that case as
-// unavailable so the UI can show a clear hint instead of a dead mic.
-const SR = typeof window !== 'undefined'
-  ? (window.SpeechRecognition || window.webkitSpeechRecognition)
-  : null
+// Detect once at module load whether the browser can capture audio for
+// Whisper (getUserMedia + MediaRecorder). Both have been supported on iOS
+// Safari (incl. PWA) since 14.3, on Android Chrome forever, and on desktop
+// Chromium/Firefox/Safari. If either is missing we surface a clear hint
+// instead of a dead mic.
+const hasMediaRecorder =
+  typeof window !== 'undefined' &&
+  typeof window.MediaRecorder !== 'undefined' &&
+  !!navigator.mediaDevices?.getUserMedia
 
-let voiceUnavailableReason = null
-if (!SR) {
-  voiceUnavailableReason = isIOS
-    ? 'Голосовой ввод не поддерживается. Откройте сайт в Chrome или Safari.'
-    : 'Голосовой ввод не поддерживается этим браузером. Используйте Chrome или Edge.'
-} else if (isIOS && isStandalonePWA) {
-  voiceUnavailableReason =
-    'Голосовой ввод недоступен в режиме приложения. ' +
-    'Откройте сайт в Safari, чтобы записывать голос.'
-}
+const voiceUnavailableReason = hasMediaRecorder
+  ? null
+  : 'Голосовой ввод не поддерживается этим браузером. Откройте сайт в Chrome, Safari или Edge.'
 const voiceUnavailable = voiceUnavailableReason !== null
+
+// Pick the best mime type the browser can record. Whisper accepts webm,
+// mp4/m4a, mp3, wav, ogg — so we just hand it whatever the platform is
+// happy to produce. iOS Safari only does mp4; everything else does webm.
+function pickRecorderMimeType() {
+  if (typeof window === 'undefined' || !window.MediaRecorder) return ''
+  const candidates = [
+    'audio/webm;codecs=opus',
+    'audio/webm',
+    'audio/mp4;codecs=mp4a.40.2',
+    'audio/mp4',
+    'audio/ogg;codecs=opus',
+  ]
+  for (const t of candidates) {
+    if (MediaRecorder.isTypeSupported?.(t)) return t
+  }
+  return ''
+}
 
 const Ctx = createContext(null)
 
@@ -35,17 +47,15 @@ export function VoiceInputProvider({ children }) {
   const [team,     setTeam]     = useState([])
   const [pendingTask, setPendingTask] = useState(null)
 
-  const recognitionRef    = useRef(null)
-  const finalRef          = useRef('')
+  const recorderRef       = useRef(null)
+  const streamRef         = useRef(null)
+  const chunksRef         = useRef([])
+  const mimeRef           = useRef('')
   const toastTimerRef     = useRef(null)
-  // True between startListening() and stopListening() — used to abort
-  // an in-flight start if the user releases before getUserMedia resolves
-  // (touch hold-to-record).
+  // True between startListening() and stopListening(). Used to abort an
+  // in-flight start if the user releases the button before getUserMedia
+  // resolves (touch hold-to-record).
   const wantsListeningRef = useRef(false)
-  // Speech recognition language. Default ru-RU; flips to kk-KZ for the
-  // *next* hold if the previous attempt produced no transcript, then
-  // resets to ru-RU on any successful recognition.
-  const langRef           = useRef('ru-RU')
 
   // Load projects/team once for parser context
   useEffect(() => {
@@ -63,9 +73,6 @@ export function VoiceInputProvider({ children }) {
 
   function showToast(payload) {
     clearTimeout(toastTimerRef.current)
-    // Accept either a string (legacy short message) or a rich payload with
-    // task details (project / assignee / deadline). Auto-hides after 3s so
-    // VoiceInput.jsx can play the fade-out animation.
     const data = typeof payload === 'string' ? { message: payload } : payload
     setToast({ ...data, id: Date.now() })
     toastTimerRef.current = setTimeout(() => setToast(null), 3000)
@@ -78,33 +85,30 @@ export function VoiceInputProvider({ children }) {
     return d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })
   }
 
+  function releaseStream() {
+    streamRef.current?.getTracks().forEach(t => t.stop())
+    streamRef.current = null
+  }
+
   const startListening = useCallback(async () => {
     if (voiceUnavailable) {
       setErrorMsg(voiceUnavailableReason)
       setState(S.ERROR)
       return
     }
-    if (recognitionRef.current || wantsListeningRef.current) return // already listening / starting
+    if (recorderRef.current || wantsListeningRef.current) return // already running / starting
     wantsListeningRef.current = true
+    setErrorMsg('')
 
-    // Pre-flight: explicitly request microphone via getUserMedia.
-    // On iOS this triggers the permission prompt that SpeechRecognition
-    // does NOT trigger on its own. If denied here, we surface a clear
-    // message instead of a silent failure.
+    // Request microphone — also surfaces the OS permission prompt on iOS.
+    let stream
     try {
-      if (navigator.mediaDevices?.getUserMedia) {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-        // We only needed permission — release the stream immediately so
-        // SpeechRecognition can claim the microphone itself.
-        stream.getTracks().forEach(t => t.stop())
-      }
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true })
     } catch (err) {
       console.error('[Voice] getUserMedia:', err)
       let msg = 'Доступ к микрофону запрещён.'
       if (err.name === 'NotAllowedError') {
-        msg = isIOS
-          ? 'Разрешите микрофон: aA → «Настройки веб-сайта» → Микрофон → Разрешить'
-          : 'Разрешите микрофон в настройках браузера для этого сайта.'
+        msg = 'Разрешите микрофон в настройках браузера для этого сайта.'
       } else if (err.name === 'NotFoundError') {
         msg = 'Микрофон не найден на устройстве.'
       } else if (err.name === 'NotReadableError') {
@@ -116,93 +120,94 @@ export function VoiceInputProvider({ children }) {
       return
     }
 
-    // User may have released the button (mobile hold-to-record) while
-    // we were waiting for the permission prompt — don't start in that case.
+    // User released the button while we were waiting for the prompt — don't start.
     if (!wantsListeningRef.current) {
+      stream.getTracks().forEach(t => t.stop())
       setState(S.IDLE)
       return
     }
 
-    const rec = new SR()
-    recognitionRef.current = rec
-    rec.lang = langRef.current
-    if (langRef.current !== 'ru-RU') console.log('[Voice] retrying with lang:', langRef.current)
-    // Continuous mode + auto-restart in onend (below) keeps recognition
-    // running for the whole hold, even on iOS Safari which silently stops
-    // mid-utterance. Stop is driven by user releasing the button.
-    rec.continuous     = true
-    rec.interimResults = false
-    rec.maxAlternatives = 1
+    streamRef.current = stream
+    chunksRef.current = []
+    const mimeType = pickRecorderMimeType()
+    mimeRef.current = mimeType
 
-    finalRef.current = ''
-    setErrorMsg('')
+    let recorder
+    try {
+      recorder = mimeType
+        ? new MediaRecorder(stream, { mimeType })
+        : new MediaRecorder(stream)
+    } catch (err) {
+      console.error('[Voice] MediaRecorder ctor:', err)
+      releaseStream()
+      wantsListeningRef.current = false
+      setErrorMsg('Не удалось запустить запись')
+      setState(S.ERROR)
+      return
+    }
+    recorderRef.current = recorder
 
-    rec.onresult = (e) => {
-      // Only finals — we never display interim text. Accumulate into
-      // finalRef so multiple onend→start cycles aggregate one transcript.
-      for (let i = e.resultIndex; i < e.results.length; i++) {
-        if (e.results[i].isFinal) finalRef.current += e.results[i][0].transcript + ' '
-      }
+    recorder.ondataavailable = (e) => {
+      if (e.data && e.data.size > 0) chunksRef.current.push(e.data)
     }
 
-    rec.onerror = (e) => {
-      // 'aborted' fires when we call .stop() — treat as normal stop, not error
-      // 'no-speech' fires when SR couldn't pick up audio yet — non-fatal,
-      //   onend will follow and the auto-restart loop keeps the session alive
-      //   until the user releases the button.
-      if (e.error === 'aborted' || e.error === 'no-speech') return
-      const msgs = {
-        'not-allowed':         'Нет доступа к микрофону — разрешите его в браузере',
-        'service-not-allowed': 'Сервис распознавания заблокирован браузером',
-        'network':             'Ошибка сети при распознавании',
-        'audio-capture':       'Не удалось захватить звук с микрофона',
-      }
-      // Mark wants=false so the restart loop in onend doesn't fight the error.
+    recorder.onerror = (e) => {
+      console.error('[Voice] recorder error:', e.error || e)
       wantsListeningRef.current = false
-      setErrorMsg(msgs[e.error] ?? `Ошибка распознавания: ${e.error}`)
+      recorderRef.current = null
+      releaseStream()
+      setErrorMsg('Ошибка записи звука')
       setState(S.ERROR)
     }
 
-    rec.onend = () => {
-      // If the user is still holding the button, SR ended on its own —
-      // restart it. This is the workaround for iOS Safari (and silence
-      // timeouts on Chrome) that auto-stops despite continuous=true.
-      if (wantsListeningRef.current) {
-        try {
-          rec.start()
-          return
-        } catch (err) {
-          // start() can throw if called too quickly — fall through to finish.
-          console.warn('[Voice] auto-restart failed:', err)
-        }
-      }
-      // User released → process accumulated text.
-      const text = finalRef.current.trim()
-      finalRef.current = ''
-      recognitionRef.current = null
-      if (text) {
-        // Got something — reset to the default language for the next session.
-        langRef.current = 'ru-RU'
-        processAndCreate(text)
-      } else {
-        // Empty result — flip language so the next hold tries the other one.
-        langRef.current = langRef.current === 'ru-RU' ? 'kk-KZ' : 'ru-RU'
+    recorder.onstop = async () => {
+      const chunks = chunksRef.current
+      chunksRef.current = []
+      recorderRef.current = null
+      releaseStream()
+
+      const type = mimeRef.current || (chunks[0]?.type || 'audio/webm')
+      const blob = new Blob(chunks, { type })
+
+      // No audio captured (e.g. immediate release after threshold) — bail quietly.
+      if (!blob.size) {
         setState(S.IDLE)
+        return
+      }
+
+      try {
+        await transcribeAndCreate(blob, type)
+      } catch (err) {
+        console.error('[Voice] transcribeAndCreate:', err)
+        setErrorMsg(err.message || 'Не удалось обработать запись')
+        setState(S.ERROR)
       }
     }
 
     setState(S.LISTENING)
-    try { rec.start() } catch (err) {
-      console.error('[Voice] start failed:', err)
-      setErrorMsg('Не удалось запустить распознавание')
+    try {
+      recorder.start()
+    } catch (err) {
+      console.error('[Voice] recorder.start:', err)
+      recorderRef.current = null
+      releaseStream()
+      wantsListeningRef.current = false
+      setErrorMsg('Не удалось запустить запись')
       setState(S.ERROR)
     }
   }, [])
 
   const stopListening = useCallback(() => {
     wantsListeningRef.current = false
-    if (recognitionRef.current) {
-      try { recognitionRef.current.stop() } catch {}
+    const rec = recorderRef.current
+    if (rec && rec.state !== 'inactive') {
+      // onstop handler kicks off transcription, so flip to PROCESSING now
+      // for instant UI feedback (spinner). The state then either advances
+      // through createTask → IDLE, or falls back to ERROR / clarification.
+      setState(S.PROCESSING)
+      try { rec.stop() } catch (err) {
+        console.warn('[Voice] recorder.stop threw:', err)
+      }
     }
   }, [])
 
@@ -232,9 +237,6 @@ export function VoiceInputProvider({ children }) {
 
     const createdTask = Array.isArray(result.data) ? result.data[0] : result.data
 
-    // Resolve human-readable bits for the toast card (project name,
-    // assignee name, formatted deadline). Hidden when not present so the
-    // card stays compact.
     const projectName = project_id
       ? (projects.find(p => p.id === project_id)?.name ?? null)
       : null
@@ -272,59 +274,63 @@ export function VoiceInputProvider({ children }) {
     return createdTask
   }
 
-  // Returns to IDLE only if we're still PROCESSING — using a functional
-  // setState avoids clobbering a new LISTENING state if the user pressed
-  // the mic again while the API call was in flight.
   function finishProcessing() {
     setState(prev => prev === S.PROCESSING ? S.IDLE : prev)
     setErrorMsg('')
   }
 
-  async function processAndCreate(text) {
+  async function transcribeAndCreate(blob, mimeType) {
     setState(S.PROCESSING)
-    try {
-      const authHeaders = await getAuthHeader()
-      // Server loads projects/team itself via the service-role key — we
-      // only ship the transcript so an empty/late local cache can't
-      // starve Haiku of context.
-      const res = await fetch('/api/tasks', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...authHeaders },
-        body: JSON.stringify({ transcript: text }),
-      })
-      const parsed = await res.json()
-      if (!res.ok) throw new Error(parsed.error ?? 'Ошибка сервера')
 
-      const title = (parsed.title ?? '').trim()
+    // Step 1: send audio to /api/whisper for transcription.
+    const authHeaders = await getAuthHeader()
+    const wr = await fetch('/api/whisper', {
+      method:  'POST',
+      headers: { 'Content-Type': mimeType || 'audio/webm', ...authHeaders },
+      body:    blob,
+    })
+    const wj = await wr.json().catch(() => ({}))
+    if (!wr.ok) throw new Error(wj.error ?? 'Ошибка распознавания')
 
-      // Clarification window only when there's nothing to put in title.
-      // If we have a title, create the task even without assignee/project —
-      // the user can fill those in later from the task list.
-      if (!title) {
-        setPendingTask({
-          title:       '',
-          assigned_to: parsed.assigned_to ?? null,
-          project_id:  parsed.project_id  ?? null,
-          deadline:    parsed.deadline    ?? null,
-          voice_text:  text,
-        })
-        finishProcessing()
-        return
-      }
+    const text = (wj.transcript ?? '').trim()
+    if (!text) {
+      // Whisper returned nothing — likely silence. Quietly reset.
+      setState(S.IDLE)
+      return
+    }
 
-      await createTask({
-        title,
-        assigned_to: parsed.assigned_to,
-        project_id:  parsed.project_id,
-        deadline:    parsed.deadline,
+    // Step 2: hand the transcript off to the existing Haiku parser.
+    const tr = await fetch('/api/tasks', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders },
+      body:    JSON.stringify({ transcript: text }),
+    })
+    const parsed = await tr.json()
+    if (!tr.ok) throw new Error(parsed.error ?? 'Ошибка сервера')
+
+    const title = (parsed.title ?? '').trim()
+
+    // Clarification window only when there's nothing to put in title.
+    if (!title) {
+      setPendingTask({
+        title:       '',
+        assigned_to: parsed.assigned_to ?? null,
+        project_id:  parsed.project_id  ?? null,
+        deadline:    parsed.deadline    ?? null,
         voice_text:  text,
       })
       finishProcessing()
-    } catch (err) {
-      console.error('[Voice] processAndCreate:', err)
-      setErrorMsg(err.message)
-      setState(S.ERROR)
+      return
     }
+
+    await createTask({
+      title,
+      assigned_to: parsed.assigned_to,
+      project_id:  parsed.project_id,
+      deadline:    parsed.deadline,
+      voice_text:  text,
+    })
+    finishProcessing()
   }
 
   async function confirmPendingTask({ title, assigned_to, project_id, deadline }) {
@@ -354,9 +360,13 @@ export function VoiceInputProvider({ children }) {
 
   const reset = useCallback(() => {
     wantsListeningRef.current = false
-    if (recognitionRef.current) {
-      try { recognitionRef.current.stop() } catch {}
+    const rec = recorderRef.current
+    if (rec && rec.state !== 'inactive') {
+      try { rec.stop() } catch {}
     }
+    recorderRef.current = null
+    chunksRef.current   = []
+    releaseStream()
     setState(S.IDLE)
     setErrorMsg('')
   }, [])

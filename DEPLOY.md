@@ -465,7 +465,8 @@ Vercel автоматически определит Vite. `vercel.json` уже 
 | `VITE_SUPABASE_ANON_KEY`     | `eyJ...`                 | frontend (build time)     |
 | `VITE_APP_URL`               | `https://voicetask-cfo.vercel.app` | `emailRedirectTo` для signup/reset |
 | `SUPABASE_SERVICE_ROLE_KEY`  | `eyJ...`                 | `api/admin.js` (server)   |
-| `ANTHROPIC_API_KEY`          | `sk-ant-...`             | `api/tasks.js` (голос)    |
+| `ANTHROPIC_API_KEY`          | `sk-ant-...`             | `api/tasks.js` (парсер задач) |
+| `OPENAI_API_KEY`             | `sk-...`                 | `api/whisper.js` (распознавание речи) |
 | `GOOGLE_CLIENT_ID` *(опц.)*  | `xxx.apps.googleusercontent.com` | `api/google-calendar.js` |
 | `GOOGLE_CLIENT_SECRET` *(опц.)* | `GOCSPX-...`         | `api/google-calendar.js` |
 
@@ -519,4 +520,4 @@ Vite проксирует `/api/*` → `http://localhost:3001` (см. `vite.conf
 
 **`Invalid login credentials`** — пользователя не существует или неподтверждён email. Создай через Supabase Dashboard с `email_confirm: true`.
 
-**Голосовой ввод не работает** — Speech Recognition API требует HTTPS (на localhost работает в исключение). Поддерживается только в Chrome/Edge.
+**Голосовой ввод не работает** — `getUserMedia` / `MediaRecorder` требуют HTTPS (на localhost — исключение). Также проверь, что `OPENAI_API_KEY` задан в env, иначе `/api/whisper` вернёт 500.
