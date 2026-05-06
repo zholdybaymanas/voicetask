@@ -9,6 +9,7 @@
 // AUTH: requires Authorization: Bearer <Supabase JWT>. Without it the
 //       endpoint is rejected — prevents abuse of the Anthropic API budget.
 import { createClient } from '@supabase/supabase-js'
+import { logUsage } from './_logUsage.js'
 
 function getServiceClient() {
   const url = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL
@@ -206,6 +207,20 @@ ${projectList}
     const claudeData = await claudeRes.json()
     const raw = claudeData?.content?.[0]?.text ?? ''
     console.log('[api/tasks] Haiku response:', raw)
+
+    // Bill into api_usage. Haiku 4.5 pricing: $1/M input + $5/M output.
+    // We store the combined token count in `tokens` and the precise
+    // per-direction cost in `cost_usd`.
+    const inputTokens  = Number(claudeData?.usage?.input_tokens)  || 0
+    const outputTokens = Number(claudeData?.usage?.output_tokens) || 0
+    const haikuCost    = (inputTokens * 1e-6) + (outputTokens * 5e-6)
+    await logUsage(sb, {
+      user_id:          user.id,
+      type:             'haiku',
+      duration_seconds: null,
+      tokens:           inputTokens + outputTokens,
+      cost_usd:         haikuCost,
+    })
 
     const jsonStr = raw.replace(/^```(?:json)?\n?/i, '').replace(/\n?```$/i, '').trim()
 

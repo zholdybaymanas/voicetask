@@ -7,6 +7,7 @@
 // Supabase JWT — without it the endpoint is rejected to keep the OpenAI
 // budget out of reach of unauthenticated callers.
 import { createClient } from '@supabase/supabase-js'
+import { logUsage } from './_logUsage.js'
 
 // Disable Vercel's default JSON body parser so we can read the raw audio
 // stream. Express (server.js) only parses application/json, so the stream
@@ -80,6 +81,9 @@ export default async function handler(req, res) {
     // Russian + Kazakh both transcribe well under language=ru — Whisper
     // handles Kazakh words and Russian/Kazakh mixing in this mode.
     fd.append('language', 'ru')
+    // verbose_json gives us the exact `duration` field — needed to bill
+    // accurately into api_usage instead of estimating from blob size.
+    fd.append('response_format', 'verbose_json')
 
     const r = await fetch('https://api.openai.com/v1/audio/transcriptions', {
       method:  'POST',
@@ -94,6 +98,18 @@ export default async function handler(req, res) {
     }
 
     const data = await r.json()
+    const duration = Number(data.duration) || 0
+    // Whisper pricing: $0.006 / minute (https://openai.com/api/pricing)
+    const costUsd = (duration / 60) * 0.006
+
+    await logUsage(sb, {
+      user_id:          user.id,
+      type:             'whisper',
+      duration_seconds: duration,
+      tokens:           null,
+      cost_usd:         costUsd,
+    })
+
     return res.status(200).json({ transcript: (data.text ?? '').trim() })
 
   } catch (error) {

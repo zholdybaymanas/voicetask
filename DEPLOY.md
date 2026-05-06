@@ -405,6 +405,74 @@ using (
 );
 ```
 
+### 1.2.8. API usage logging
+
+Таблица для учёта расходов на Whisper и Claude Haiku + RPC-агрегатор для админ-панели. Каждый вызов `/api/whisper` и `/api/tasks` пишет одну строку (best-effort, не блокирует ответ).
+
+```sql
+create table if not exists api_usage (
+  id               uuid primary key default gen_random_uuid(),
+  user_id          uuid references profiles(id) on delete set null,
+  type             text not null check (type in ('whisper', 'haiku')),
+  duration_seconds float,    -- whisper: точная длительность из verbose_json
+  tokens           integer,  -- haiku: input + output tokens
+  cost_usd         float,    -- USD (whisper: $0.006/min; haiku 4.5: $1/M in + $5/M out)
+  created_at       timestamptz default now()
+);
+create index if not exists api_usage_created_at_idx on api_usage(created_at desc);
+create index if not exists api_usage_type_idx       on api_usage(type);
+
+alter table api_usage enable row level security;
+
+-- INSERT/UPDATE/DELETE идут только через service-role (с серверов /api/*).
+-- Для authenticated-юзеров политик INSERT нет — запись в RLS закрыта.
+drop policy if exists "api_usage_select_admin" on api_usage;
+create policy "api_usage_select_admin" on api_usage for select to authenticated
+  using (is_admin());
+
+-- Один RPC возвращает оба окна (текущий месяц + всё время) одним запросом.
+-- security definer + явная проверка is_admin() внутри — admin-only.
+create or replace function get_api_usage_stats()
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  result      jsonb;
+  month_start timestamptz := date_trunc('month', now());
+begin
+  if not is_admin() then
+    raise exception 'forbidden' using errcode = '42501';
+  end if;
+
+  select jsonb_build_object(
+    'whisper_count',   coalesce(count(*) filter (where type = 'whisper'),                0),
+    'whisper_seconds', coalesce(sum(duration_seconds) filter (where type = 'whisper'),   0),
+    'whisper_cost',    coalesce(sum(cost_usd)        filter (where type = 'whisper'),    0),
+    'haiku_count',     coalesce(count(*) filter (where type = 'haiku'),                  0),
+    'haiku_tokens',    coalesce(sum(tokens)          filter (where type = 'haiku'),      0),
+    'haiku_cost',      coalesce(sum(cost_usd)        filter (where type = 'haiku'),      0),
+    'total_cost',      coalesce(sum(cost_usd),                                           0)
+  ) into result
+  from api_usage
+  where created_at >= month_start;
+
+  select jsonb_build_object(
+    'month',    result,
+    'all_time', jsonb_build_object(
+      'count_total', (select coalesce(count(*),       0) from api_usage),
+      'total_cost',  (select coalesce(sum(cost_usd),  0) from api_usage)
+    )
+  ) into result;
+
+  return result;
+end;
+$$;
+
+grant execute on function get_api_usage_stats() to authenticated;
+```
+
 ### 1.3. RLS политики (если ещё не настроены)
 
 Минимальные политики для работы приложения:

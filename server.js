@@ -26,7 +26,9 @@ if (fs.existsSync(envPath)) {
 
 // Register all api/*.js handlers
 const apiDir = path.join(__dirname, 'api')
-const files = fs.readdirSync(apiDir).filter(f => f.endsWith('.js'))
+// Skip files starting with `_` — convention for shared helpers, mirrors
+// Vercel's behaviour where /api/_*.js is excluded from the route table.
+const files = fs.readdirSync(apiDir).filter(f => f.endsWith('.js') && !f.startsWith('_'))
 for (const file of files) {
   const route = '/api/' + file.replace('.js', '')
   const mod = await import('./api/' + file)

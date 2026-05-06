@@ -26,6 +26,9 @@ function readBool(key, defaultValue = true) {
 }
 
 export default function SettingsPage() {
+  const { profile } = useAuth()
+  const isAdmin = profile?.role === 'admin'
+
   return (
     <div className="space-y-5 max-w-2xl">
       <Section title="Оформление" subtitle="Цветовая тема приложения">
@@ -47,6 +50,12 @@ export default function SettingsPage() {
       <Section title="Язык" subtitle="Язык интерфейса">
         <LanguageSelect />
       </Section>
+
+      {isAdmin && (
+        <Section title="Использование API" subtitle="Расходы на Whisper и Claude Haiku">
+          <ApiUsageSettings />
+        </Section>
+      )}
 
       <Section title="О приложении">
         <AboutInfo />
@@ -456,6 +465,90 @@ function Choice({ value, current, onPick, title, sub }) {
       )}
     </button>
   )
+}
+
+// ───────────────────────────── API usage (admin) ─────────────────────────────
+
+function ApiUsageSettings() {
+  const [stats,   setStats]   = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [error,   setError]   = useState(null)
+
+  // Refresh on every mount — matches the spec ("обновлять при каждом
+  // открытии страницы"). The aggregator RPC is admin-only and cheap.
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    setError(null)
+    supabase.rpc('get_api_usage_stats').then(({ data, error }) => {
+      if (cancelled) return
+      if (error) {
+        console.error('[settings] api_usage rpc:', error)
+        setError(error.message ?? 'Не удалось загрузить статистику')
+      } else {
+        setStats(data ?? null)
+      }
+      setLoading(false)
+    })
+    return () => { cancelled = true }
+  }, [])
+
+  if (loading) return <p className="text-sm text-muted">Загрузка…</p>
+  if (error)   return <p className="text-sm text-red-400">{error}</p>
+  if (!stats)  return <p className="text-sm text-muted">Нет данных</p>
+
+  const month  = stats.month    ?? {}
+  const allT   = stats.all_time ?? {}
+  const minutes = (month.whisper_seconds ?? 0) / 60
+
+  return (
+    <div className="space-y-5">
+      <div>
+        <h3 className="text-xs font-semibold uppercase tracking-wide text-muted mb-3">
+          Текущий месяц
+        </h3>
+        <div className="space-y-2 text-sm">
+          <Row label="Голосовых запросов" value={month.whisper_count ?? 0} />
+          <Row
+            label="Whisper"
+            value={`${formatCost(month.whisper_cost)} (${minutes.toFixed(1)} мин аудио)`}
+          />
+          <Row
+            label="Claude Haiku"
+            value={`${formatCost(month.haiku_cost)} (${formatTokens(month.haiku_tokens)} токенов)`}
+          />
+          <div className="border-t border-border pt-2 mt-2 flex items-center justify-between gap-3">
+            <span className="text-text font-medium">ИТОГО</span>
+            <span className="text-text font-semibold">{formatCost(month.total_cost)}</span>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <h3 className="text-xs font-semibold uppercase tracking-wide text-muted mb-3">
+          За всё время
+        </h3>
+        <div className="space-y-2 text-sm">
+          <Row label="Всего запросов"  value={allT.count_total ?? 0} />
+          <Row label="Общие расходы"   value={formatCost(allT.total_cost)} />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function formatCost(usd) {
+  const v = Number(usd) || 0
+  if (v === 0)     return '$0.00'
+  if (v < 0.01)    return '<$0.01'
+  return `~$${v.toFixed(2)}`
+}
+
+function formatTokens(n) {
+  const v = Number(n) || 0
+  if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(2)}M`
+  if (v >= 1_000)     return `${(v / 1_000).toFixed(1)}K`
+  return String(v)
 }
 
 // ───────────────────────────── About ─────────────────────────────
